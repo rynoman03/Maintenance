@@ -16,7 +16,7 @@ administrative tasks — with the option to drop to a normal shell at any time.
 | |_| | | | |  _ \
 |  _  | |_| | |_) |
 |_| |_|\___/|____/
-        Server Administration Console
+Server Administration Console
 ```
 
 ## Screenshots
