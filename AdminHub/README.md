@@ -23,15 +23,51 @@ administrative tasks — with the option to drop to a normal shell at any time.
 
 The menu shown at startup:
 
-![Admin Hub menu](images/menu.svg)
+```text
+============================================================
+  SERVER ADMIN MENU  -  SRV-DB01
+============================================================
+  [1]  Disk Space
+  [2]  Top Resource Users (live)
+  [3]  Restart a Service
+  [4]  Pending Windows Updates
+  [5]  Full System Health Check
+  [M]  Top 10 Memory Usage
+  [S]  Top 10 Swap/Page File
+  [A]  Active User Sessions
+  [C]  Disk Cleanup (C: drive)
+  [E]  Export Health Report
+  [0]  Exit to Shell
+============================================================
+  Tip: after a task, press [X] then Enter to exit - type Show-AdminMenu to reopen.
+
+> Select an option
+```
 
 Output of **Export Health Report** `[E]` — the pass/fail summary printed on
 screen before the full report is written to disk:
 
-![Export Health Report output](images/health-report.svg)
+```text
+============================================================
+  Health Summary - SRV-DB01
+============================================================
+  [FAIL] Disk space           highest used: E: 92%
+  [WARN] Pending reboot        Windows Update
+  [FAIL] RAID/disk (iDRAC)     Disk.Bay.3 Status=Failed; PredictiveFailure=Active
+  [WARN] Auto services         2 stopped (Spooler, wuauserv)
+  [OK  ] Memory                63% used
+  [WARN] Pagefile              82% used
+  [WARN] System errors (24h)   4 error event(s)
+  [OK  ] Uptime                21d 7h since last boot
 
-> These are illustrative renderings of the console output, not captures from a
-> specific server.
+  Overall: FAIL
+  Report saved to: C:\AdminReports\HealthReport_SRV-DB01_20260626_143052.txt
+  Size: 9.7 KB
+```
+
+> Output is color-coded in the console (green/yellow/red); GitHub renders these
+> samples in monochrome. To add a real color screenshot, capture your PowerShell
+> window and drop a PNG in `AdminHub/images/`, then reference it here.
 
 ## Menu options
 
