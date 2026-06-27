@@ -3,6 +3,18 @@
 .SYNOPSIS
     Administrative PowerShell profile applied to all users on Windows Servers.
     Presents an interactive menu of common administrative tasks on shell startup.
+.NOTES
+    Execution policy: this script is not digitally signed. If PowerShell blocks
+    it (or Deploy-AdminProfile.ps1) with "running scripts is disabled on this
+    system", the execution policy must be relaxed once (per machine) from an
+    elevated prompt. This only needs to be done if it has not been enabled
+    before:
+
+        Set-ExecutionPolicy RemoteSigned
+
+    RemoteSigned allows locally-created scripts to run while still requiring
+    downloaded scripts to be signed. Check the current value with
+    Get-ExecutionPolicy.
 #>
 
 # ===========================================================================

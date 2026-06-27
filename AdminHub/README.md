@@ -148,6 +148,18 @@ falls back to cumulative CPU time if live sampling is unavailable.
 
 Run from an elevated (Administrator) PowerShell prompt.
 
+> **Execution policy:** these scripts are not digitally signed. If PowerShell
+> blocks them with *"running scripts is disabled on this system"*, the execution
+> policy needs to be relaxed once (per machine) from an elevated prompt:
+>
+> ```powershell
+> Set-ExecutionPolicy RemoteSigned
+> ```
+>
+> `RemoteSigned` lets locally-created scripts run while still requiring
+> downloaded scripts to be signed. This only needs to be done once if it has not
+> been enabled before. To check the current setting, run `Get-ExecutionPolicy`.
+
 ```powershell
 # Local server
 .\Deploy-AdminProfile.ps1
@@ -183,5 +195,8 @@ art with the "Standard" figlet font at <https://patorjk.com>.
 
 - Windows Server (or Windows client) with PowerShell 5.1+ or PowerShell 7+
 - Administrator rights to deploy and to run the administrative tasks
+- An execution policy that allows unsigned local scripts to run. If it has not
+  been enabled before, run `Set-ExecutionPolicy RemoteSigned` once from an
+  elevated prompt (see **Deployment**).
 - Optional: the `PSWindowsUpdate` module for the "Pending Windows Updates" option
   (`Install-Module PSWindowsUpdate`)
