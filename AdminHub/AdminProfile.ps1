@@ -15,6 +15,11 @@
     RemoteSigned allows locally-created scripts to run while still requiring
     downloaded scripts to be signed. Check the current value with
     Get-ExecutionPolicy.
+
+    Code signing: for production, digitally sign this script (and the deploy /
+    remove scripts) with an Authenticode code-signing certificate so it runs
+    under the AllSigned policy. Sign LAST - any later edit breaks the signature.
+    See the "Code signing" section of README.md for full instructions.
 #>
 
 # ===========================================================================

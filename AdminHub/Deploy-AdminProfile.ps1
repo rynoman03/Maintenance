@@ -16,6 +16,18 @@
 .EXAMPLE
     .\Deploy-AdminProfile.ps1
     .\Deploy-AdminProfile.ps1 -ComputerName SRV01,SRV02 -Force
+
+.NOTES
+    Code signing: for production this script (and AdminProfile.ps1 /
+    Remove-AdminProfile.ps1) should be digitally signed with an Authenticode
+    code-signing certificate so it can run under the AllSigned execution policy.
+    Sign LAST - any edit after signing invalidates the signature. Example:
+
+        $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select -First 1
+        Set-AuthenticodeSignature -FilePath .\Deploy-AdminProfile.ps1 -Certificate $cert `
+            -TimeStampServer http://timestamp.digicert.com -HashAlgorithm SHA256
+
+    See the "Code signing" section of README.md for full instructions.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(

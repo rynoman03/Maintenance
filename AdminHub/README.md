@@ -185,6 +185,70 @@ overwritten.
 Restores the most recent backup if one exists; otherwise removes the deployed
 profile.
 
+## Code signing
+
+> **These scripts should be digitally signed before deployment.** Relaxing the
+> execution policy to `RemoteSigned` (above) is fine for testing, but the
+> production-safe option is to sign the scripts so they run under the strict
+> `AllSigned` policy — and so any later tampering invalidates them. Sign **all**
+> `.ps1` files (`AdminProfile.ps1`, `Deploy-AdminProfile.ps1`,
+> `Remove-AdminProfile.ps1`), because `AllSigned` validates every script that
+> runs.
+
+You need an **Authenticode code-signing certificate**. Where it must be trusted
+decides which kind to use:
+
+| Use case                          | Certificate                                                        |
+|-----------------------------------|-------------------------------------------------------------------|
+| Deploy across the org's servers   | A cert from your **internal/enterprise CA** (domain machines trust it via AD) |
+| Distribute outside the org        | A cert from a **public CA** (DigiCert, Sectigo, etc.)             |
+| Local testing only                | A **self-signed** cert (trusted only where you import it)         |
+
+### Sign the scripts
+
+Run from an elevated PowerShell prompt in the `AdminHub` folder. Signing appends
+a signature block to the file, so **sign last** — any later edit breaks the
+signature and the file must be re-signed.
+
+```powershell
+# Pick your code-signing certificate from the certificate store...
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+
+# ...or load it from a .pfx file:
+# $cert = Get-PfxCertificate -FilePath .\codesign.pfx
+
+# Sign each script. -TimeStampServer keeps the signature valid after the cert
+# expires; SHA256 is the modern hash algorithm.
+Get-ChildItem .\*.ps1 | ForEach-Object {
+    Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert `
+        -TimeStampServer http://timestamp.digicert.com -HashAlgorithm SHA256
+}
+```
+
+### Verify
+
+```powershell
+Get-ChildItem .\*.ps1 |
+    ForEach-Object { Get-AuthenticodeSignature $_.FullName } |
+    Format-Table Path, Status, @{N='Signer';E={$_.SignerCertificate.Subject}}
+```
+
+`Status` should read `Valid`. For self-signed or internal-CA certs, target
+machines must trust the signer — import the certificate (or its issuing CA) into
+**Trusted Root** and **Trusted Publishers**:
+
+```powershell
+# Example: trust a self-signed/exported public cert on the local machine
+Import-Certificate -FilePath .\codesign.cer -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath .\codesign.cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
+```
+
+> Creating a self-signed cert for testing:
+> ```powershell
+> $cert = New-SelfSignedCertificate -Type CodeSigningCert `
+>     -Subject "CN=AdminHub Code Signing" -CertStoreLocation Cert:\CurrentUser\My
+> ```
+
 ## Rebranding
 
 The banner is configurable at the top of `AdminProfile.ps1`. Replace
@@ -195,8 +259,9 @@ art with the "Standard" figlet font at <https://patorjk.com>.
 
 - Windows Server (or Windows client) with PowerShell 5.1+ or PowerShell 7+
 - Administrator rights to deploy and to run the administrative tasks
-- An execution policy that allows unsigned local scripts to run. If it has not
-  been enabled before, run `Set-ExecutionPolicy RemoteSigned` once from an
-  elevated prompt (see **Deployment**).
+- An execution policy that allows the scripts to run. For testing, run
+  `Set-ExecutionPolicy RemoteSigned` once from an elevated prompt (see
+  **Deployment**). For production, **digitally sign the scripts** and run under
+  `AllSigned` (see **Code signing**).
 - Optional: the `PSWindowsUpdate` module for the "Pending Windows Updates" option
   (`Install-Module PSWindowsUpdate`)
