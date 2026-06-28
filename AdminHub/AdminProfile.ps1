@@ -1128,18 +1128,24 @@ function Show-AdminMenu {
             Write-Host "[Standard user]" -ForegroundColor Yellow
         }
         Write-Host ("=" * 60) -ForegroundColor DarkGray
+        Write-Host "  System & Diagnostics" -ForegroundColor DarkCyan
         Write-Host "  [1]  Disk Space"              -ForegroundColor Green
         Write-Host "  [2]  Top Resource Users (live)"-ForegroundColor Green
-        Write-Host "  [3]  Restart a Service"       -ForegroundColor Yellow
-        Write-Host "  [4]  Pending Windows Updates" -ForegroundColor Yellow
         Write-Host "  [5]  Full System Health Check"-ForegroundColor Cyan
         Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
         Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
-        Write-Host "  [N]  Network (adapters, teaming, DNS)" -ForegroundColor Green
-        Write-Host "  [P]  Listening Ports / Connections" -ForegroundColor Green
+        Write-Host "  [4]  Pending Windows Updates" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Networking" -ForegroundColor DarkCyan
+        Write-Host "  [N]  Adapters, teaming, DNS, gateway" -ForegroundColor Green
+        Write-Host "  [P]  Listening Ports / Connections"   -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  Maintenance" -ForegroundColor DarkCyan
+        Write-Host "  [3]  Restart a Service"       -ForegroundColor Yellow
         Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
         Write-Host "  [E]  Export Health Report"    -ForegroundColor DarkCyan
+        Write-Host ""
         if (-not $admin) {
             Write-Host "  [R]  Relaunch as Administrator" -ForegroundColor Red
         }

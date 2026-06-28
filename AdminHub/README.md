@@ -66,6 +66,9 @@ screen before the full report is written to disk:
 
 ## Menu options
 
+On screen the menu is grouped into **System & Diagnostics**, **Networking**
+(`[N]` and `[P]`), and **Maintenance** sections. The keys are unchanged:
+
 | Key | Option                      | Type        |
 |-----|-----------------------------|-------------|
 | 1   | Disk Space                  | Read        |
@@ -76,7 +79,7 @@ screen before the full report is written to disk:
 | M   | Top 10 Memory Usage         | Read        |
 | S   | Top 10 Swap / Page File     | Read        |
 | A   | Active User Sessions        | Read        |
-| N   | Network (adapters, teaming, DNS) | Read   |
+| N   | Network: adapters, teaming, DNS, gateway | Read |
 | P   | Listening Ports / Connections | Read       |
 | C   | Disk Cleanup (C: drive)     | Destructive |
 | E   | Export Health Report        | Action      |
