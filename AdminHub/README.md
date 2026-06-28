@@ -25,7 +25,7 @@ The menu shown at startup:
   System & Diagnostics
   [1]  Disk Space
   [2]  Top Resource Users (live)
-  [3]  Restart / Kill a Service
+  [3]  Manage a Service (restart / kill)
   [4]  Windows Updates (pending + history)
   [5]  Full System Health Check
   [M]  Top 10 Memory Usage
@@ -33,7 +33,7 @@ The menu shown at startup:
   [A]  Active User Sessions
   [L]  Tail a Log File
   [V]  Search Event Logs
-  [K]  Kill a Process
+  [K]  Kill a Process (app / non-service)
 
   Networking
   [N]  Adapters, teaming, DNS, gateway
@@ -154,7 +154,10 @@ sqlservr 1840 8421.55        8102.33
 w3wp     5210 1422.10        1290.04
 ```
 
-**`[3]` Restart / Kill a Service** — shows PID/owning process and blast radius, then restart or force-kill:
+**`[3]` Manage a Service (restart / kill)** — the *service-side* tool: resolve a
+named service, see its PID/owning process and blast radius, then restart or
+force-kill (with the option to start it back up). To kill a plain application
+process, use `[K]` instead.
 
 ```text
   Enter service name or display name: Spooler
@@ -315,7 +318,8 @@ Time           Level Source                  ID Message
 06-28 10:28:14 Error Service Control Manager 7043 The ... service did not shut down properly.
 ```
 
-**`[K]` Kill a Process** — kill an arbitrary process by name or PID. If you don't
+**`[K]` Kill a Process (app / non-service)** — the *process-side* tool, for hung
+apps and runaway processes that aren't services. Kill by name or PID; if you don't
 know either, press `[L]` to list the running processes (heaviest first) and find the
 PID. It then lists matches (top 20 by memory) and always acts on a single confirmed
 PID, never by name, so a typo can't sweep up unrelated processes. Reuses the same
@@ -489,7 +493,7 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 |-----|-----------------------------|-------------|
 | 1   | Disk Space                  | Read        |
 | 2   | Top Resource Users (live)   | Read        |
-| 3   | Restart / Kill a Service    | Action      |
+| 3   | Manage a Service (restart / kill) | Action  |
 | 4   | Windows Updates (pending + history) | Action |
 | 5   | Full System Health Check    | Read        |
 | M   | Top 10 Memory Usage         | Read        |
@@ -497,7 +501,7 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 | A   | Active User Sessions        | Read        |
 | L   | Tail a Log File             | Read        |
 | V   | Search Event Logs           | Read        |
-| K   | Kill a Process              | Action      |
+| K   | Kill a Process (app / non-service) | Action |
 | N   | Network: adapters, teaming, DNS, gateway | Read |
 | P   | Listening Ports / Connections | Read       |
 | C   | Disk Cleanup (C: drive)     | Destructive |
@@ -630,7 +634,7 @@ and optionally **follow live** (`tail -f` via `Get-Content -Wait`). Following
 blocks until `Ctrl+C`, which returns you to the shell (type `Show-AdminMenu` to
 reopen the menu); non-follow mode prints the last N lines and returns to the menu.
 
-### Restart / kill a service `[3]`
+### Manage a service (restart / kill) `[3]`
 
 Resolves a service by exact name or display name and shows its status, start
 type, **PID and owning process**, running dependents, and — when it runs in a

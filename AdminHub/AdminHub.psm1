@@ -416,7 +416,7 @@ function Stop-ProcessInteractive {
     if ($svc.Count -gt 0) {
         Write-Host ("  PID $targetPid hosts {0} service(s): {1}" -f `
             $svc.Count, (($svc | Select-Object -First 8 -ExpandProperty Name) -join ', ')) -ForegroundColor Yellow
-        Write-Host "  Killing it stops all of them - consider [3] Restart / Kill a Service instead." -ForegroundColor Yellow
+        Write-Host "  Killing it stops all of them - consider [3] Manage a Service instead." -ForegroundColor Yellow
     }
     if (-not (Test-IsAdmin)) {
         Write-Host "  Note: killing a service or another user's process needs admin - use [R] to elevate." -ForegroundColor DarkGray
@@ -1801,7 +1801,7 @@ function Show-AdminMenu {
         Write-Host "  System & Diagnostics" -ForegroundColor DarkCyan
         Write-Host "  [1]  Disk Space"              -ForegroundColor Green
         Write-Host "  [2]  Top Resource Users (live)"-ForegroundColor Green
-        Write-Host "  [3]  Restart / Kill a Service"-ForegroundColor Yellow
+        Write-Host "  [3]  Manage a Service (restart / kill)" -ForegroundColor Yellow
         Write-Host "  [4]  Windows Updates (pending + history)" -ForegroundColor Yellow
         Write-Host "  [5]  Full System Health Check"-ForegroundColor Cyan
         Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
@@ -1809,7 +1809,7 @@ function Show-AdminMenu {
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
         Write-Host "  [L]  Tail a Log File"         -ForegroundColor Green
         Write-Host "  [V]  Search Event Logs"       -ForegroundColor Green
-        Write-Host "  [K]  Kill a Process"          -ForegroundColor Yellow
+        Write-Host "  [K]  Kill a Process (app / non-service)" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "  Networking" -ForegroundColor DarkCyan
         Write-Host "  [N]  Adapters, teaming, DNS, gateway" -ForegroundColor Green
