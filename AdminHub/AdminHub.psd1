@@ -69,12 +69,12 @@ PowerShellVersion = '5.1'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = 'Show-AdminMenu', 'Invoke-SystemHealthCheck', 'Get-HealthSummary', 
-               'Export-HealthReport', 'Invoke-AdminHubCheck', 'Enter-AdminSession', 
-               'Get-DiskSpace', 'Get-TopResourceUsers', 'Get-TopMemory', 
-               'Get-SwapUsage', 'Get-ActiveSessions', 'Show-LogTail', 
-               'Show-NetworkStatus', 'Show-PortsConnections', 'Show-NetworkLocation', 
-               'Restart-ServiceByName', 'Invoke-DiskCleanup', 'Get-PendingUpdates', 
+FunctionsToExport = 'Show-AdminMenu', 'Invoke-SystemHealthCheck', 'Get-HealthSummary',
+               'Export-HealthReport', 'Invoke-AdminHubCheck', 'Enter-AdminSession',
+               'Get-DiskSpace', 'Get-TopResourceUsers', 'Get-TopMemory',
+               'Get-SwapUsage', 'Get-ActiveSessions', 'Show-LogTail',
+               'Show-NetworkStatus', 'Show-PortsConnections', 'Show-NetworkLocation',
+               'Restart-ServiceByName', 'Invoke-DiskCleanup', 'Get-PendingUpdates',
                'Show-RecentSystemErrors', 'Show-HardwareHealth',
                'Show-CpuMemoryFaults', 'Show-TimeSync', 'Show-EventLogSearch',
                'Stop-ProcessInteractive', 'Restart-ComputerInteractive'

@@ -1,0 +1,68 @@
+name: AdminHub CI
+
+# Lints and tests the AdminHub module. Scoped to the AdminHub folder so changes
+# to the other scripts in this repo do not trigger it. Runs on Windows PowerShell
+# 5.1 (the module's target runtime) on a Windows runner.
+
+on:
+  push:
+    paths:
+      - 'AdminHub/**'
+      - '.github/workflows/adminhub-ci.yml'
+  pull_request:
+    paths:
+      - 'AdminHub/**'
+      - '.github/workflows/adminhub-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  lint-and-test:
+    name: PSScriptAnalyzer + Pester (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell        # Windows PowerShell 5.1, not pwsh 7
+        working-directory: AdminHub
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer and Pester
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -MinimumVersion 1.21.0 -Force -Scope CurrentUser
+          # windows-latest ships Pester 3.4 in WindowsPowerShell; force the 5.x line.
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+
+      - name: PSScriptAnalyzer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module PSScriptAnalyzer
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\ScriptAnalyzerSettings.psd1
+          if ($results) {
+            $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+            throw "PSScriptAnalyzer reported $($results.Count) issue(s)."
+          }
+          Write-Host 'PSScriptAnalyzer: clean.'
+
+      - name: Pester
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -MinimumVersion 5.0
+          $config = New-PesterConfiguration
+          $config.Run.Path           = './Tests'
+          $config.Run.Throw          = $true     # non-zero exit on any failure
+          $config.Output.Verbosity   = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'testResults.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results
+          path: AdminHub/testResults.xml
+          if-no-files-found: ignore

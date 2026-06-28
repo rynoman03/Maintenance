@@ -328,7 +328,7 @@ function Restart-ServiceByName {
             }
 
             $warn = if ($siblings.Count -gt 0) { " and $($siblings.Count) co-hosted service(s)" } else { "" }
-            $confirm = Read-Host "  Force-kill PID $procId ($($proc.ProcessName))$warn? Abrupt - unsaved state is lost. [Y/N]"
+            $confirm = Read-Host "  Force-kill PID $procId ($($proc.ProcessName))${warn}? Abrupt - unsaved state is lost. [Y/N]"
             if ($confirm -notmatch '^[Yy]') { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
 
             try {
@@ -1883,6 +1883,7 @@ function Invoke-AdminHubCheck {
     # Non-interactive health check for monitoring. Returns a Nagios-style code
     # (0/1/2/3). The deployed profile/script wrapper calls this and exits with it.
     [CmdletBinding()]
+    [OutputType([int])]
     param([switch]$AsJson, [switch]$Quiet)
     $summary = @(Get-HealthSummary 6>$null)
     $overall = if (@($summary).Count -eq 0)               { 'UNKNOWN' }

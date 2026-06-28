@@ -668,6 +668,8 @@ falls back to cumulative CPU time if live sampling is unavailable.
 | `Deploy-AdminProfile.ps1`  | Installs the module (PSModulePath) + profile shim, local/remote.|
 | `Remove-AdminProfile.ps1`  | Removes the module + profile, restoring any backup that was made.|
 | `Install-UserProfile.ps1`  | Per-user install of the module + shim (no admin).              |
+| `ScriptAnalyzerSettings.psd1` | PSScriptAnalyzer rules for the CI lint gate.                |
+| `Tests/AdminHub.Tests.ps1` | Pester tests (manifest, export surface, file encoding).        |
 
 AdminHub is a **PowerShell module**. Because `Deploy-AdminProfile.ps1` installs
 it under `PSModulePath`, its commands **autoload in any session — including
@@ -773,6 +775,33 @@ overwritten.
 
 Restores the most recent backup if one exists; otherwise removes the deployed
 profile.
+
+## Testing / CI
+
+The module is linted and tested automatically by GitHub Actions
+(`.github/workflows/adminhub-ci.yml`), which runs on every push or pull request
+that touches `AdminHub/`. The job runs on a Windows runner under **Windows
+PowerShell 5.1** — the module's target runtime — in two gates:
+
+- **PSScriptAnalyzer** against `ScriptAnalyzerSettings.psd1`. The settings file
+  documents the few rules that are intentionally excluded (e.g. `Write-Host` is
+  the tool's UI, the public commands use established plural-noun names). Any
+  other Error or Warning fails the build.
+- **Pester** (`Tests/AdminHub.Tests.ps1`): the manifest is valid, the module
+  imports, the export surface in the `.psd1` matches `Export-ModuleMember` in
+  the `.psm1` (catches drift when a command is added to one but not the other),
+  and every shipped `.ps1`/`.psm1`/`.psd1` is **pure ASCII with no BOM** — the
+  encoding Windows PowerShell 5.1 requires.
+
+Run the same checks locally (installs the modules on first use):
+
+```powershell
+Install-Module PSScriptAnalyzer, Pester -MinimumVersion 5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+
+# from the AdminHub folder:
+Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\ScriptAnalyzerSettings.psd1
+Invoke-Pester -Path .\Tests
+```
 
 ## Code signing
 
