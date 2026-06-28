@@ -565,6 +565,205 @@ function Get-SwapUsage {
         Format-Table -AutoSize
 }
 
+function Get-UsageBar {
+    # ASCII utilisation bar, e.g. [#######.....] - no Unicode (PS 5.1 / ASCII rule).
+    param([double]$Percent, [int]$Width = 20)
+    $p = [math]::Max(0, [math]::Min(100, $Percent))
+    $fill = [int][math]::Round($Width * $p / 100)
+    '[' + ('#' * $fill) + ('.' * ($Width - $fill)) + ']'
+}
+
+function Get-ProcessMonitorData {
+    # One sample frame. CPU% is computed htop-style from the change in each
+    # process's CPU seconds since the previous sample, divided by elapsed wall
+    # time x logical cores. $Previous maps PID -> CPU seconds from the last frame;
+    # $ElapsedSeconds is 0 on the very first frame (so all CPU% read 0 until the
+    # second draw). Returns the row objects plus refreshed previous-sample state.
+    param([hashtable]$Previous, [double]$ElapsedSeconds, [int]$Cores)
+
+    $procs = Get-Process -ErrorAction SilentlyContinue
+    $rows  = New-Object System.Collections.ArrayList
+    $next  = @{}
+    foreach ($p in $procs) {
+        $cpuNow = $null
+        try { $cpuNow = $p.CPU } catch { $cpuNow = $null }   # access denied on some system procs
+        if ($null -ne $cpuNow) { $next[$p.Id] = [double]$cpuNow }
+
+        $cpuPct = 0.0
+        if ($ElapsedSeconds -gt 0 -and $null -ne $cpuNow -and $Previous.ContainsKey($p.Id)) {
+            $delta = [double]$cpuNow - $Previous[$p.Id]
+            if ($delta -gt 0) { $cpuPct = [math]::Round($delta / ($ElapsedSeconds * $Cores) * 100, 1) }
+        }
+        [void]$rows.Add([PSCustomObject]@{
+            Id     = $p.Id
+            Name   = $p.ProcessName
+            CpuPct = $cpuPct
+            MemMB  = [math]::Round($p.WorkingSet64 / 1MB, 1)
+            PfMB   = [math]::Round($p.PagedMemorySize64 / 1MB, 1)
+        })
+    }
+    [PSCustomObject]@{ Rows = $rows; Previous = $next }
+}
+
+function Write-ProcessMonitorFrame {
+    # Draws one frame: header, CPU/Mem/Swap bars, sorted process table, footer.
+    # The caller positions the cursor (home for live redraw, or after a header for
+    # the static fallback). Lines are padded to the window width so a live redraw
+    # overwrites the previous frame cleanly without a full Clear-Host flicker.
+    param($Rows, [string]$Sort, [int]$Top, [int]$RefreshSeconds, [switch]$Static)
+
+    $w = 80
+    try { if ([Console]::WindowWidth -gt 40) { $w = [Console]::WindowWidth } } catch { }
+    function WL { param([string]$Text, $Color = 'Gray')
+        if ($Text.Length -gt $w - 1) { $Text = $Text.Substring(0, $w - 1) }
+        Write-Host $Text.PadRight($w - 1) -ForegroundColor $Color
+    }
+    function SevColor { param([double]$Pct) if ($Pct -ge 90) { 'Red' } elseif ($Pct -ge 75) { 'Yellow' } else { 'Green' } }
+
+    # --- system totals ---
+    $cpuTot = [math]::Min(100, [math]::Round((($Rows | Measure-Object CpuPct -Sum).Sum), 0))
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $memPct = 0; $memUsedGB = 0; $memTotGB = 0
+    if ($os -and $os.TotalVisibleMemorySize -gt 0) {
+        $memPct    = [math]::Round((1 - $os.FreePhysicalMemory / $os.TotalVisibleMemorySize) * 100, 0)
+        $memTotGB  = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+        $memUsedGB = [math]::Round(($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / 1MB, 1)
+    }
+    $pf = Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue
+    $pfAlloc = ($pf | Measure-Object AllocatedBaseSize -Sum).Sum
+    $pfUsed  = ($pf | Measure-Object CurrentUsage -Sum).Sum
+    $pfPct   = if ($pfAlloc -gt 0) { [math]::Round($pfUsed / $pfAlloc * 100, 0) } else { 0 }
+
+    $up = ''
+    if ($os) { $u = (Get-Date) - $os.LastBootUpTime; $up = "up {0}d {1}h" -f $u.Days, $u.Hours }
+
+    WL ("  {0}   {1}   procs: {2}   sort: {3}{4}" -f `
+        $env:COMPUTERNAME, $up, @($Rows).Count, $Sort, $(if ($Static) { '' } else { "   refresh {0}s" -f $RefreshSeconds })) 'Cyan'
+    WL ("  CPU  {0} {1,3}%" -f (Get-UsageBar $cpuTot), $cpuTot) (SevColor $cpuTot)
+    WL ("  Mem  {0} {1,3}%   {2} / {3} GB" -f (Get-UsageBar $memPct), $memPct, $memUsedGB, $memTotGB) (SevColor $memPct)
+    if ($pfAlloc -gt 0) {
+        WL ("  Swap {0} {1,3}%   {2} / {3} MB" -f (Get-UsageBar $pfPct), $pfPct, $pfUsed, $pfAlloc) (SevColor $pfPct)
+    } else {
+        WL "  Swap [....................]   no page file" 'DarkGray'
+    }
+    WL "" 'Gray'
+
+    $sorted = switch ($Sort) {
+        'MEM' { $Rows | Sort-Object MemMB  -Descending }
+        'PF'  { $Rows | Sort-Object PfMB   -Descending }
+        default { $Rows | Sort-Object CpuPct -Descending }
+    }
+    WL ("    {0,6}  {1,-22} {2,6}  {3,10}  {4,10}" -f 'PID', 'NAME', 'CPU%', 'MEM(MB)', 'PF(MB)') 'DarkGray'
+    foreach ($r in ($sorted | Select-Object -First $Top)) {
+        WL ("    {0,6}  {1,-22} {2,6}  {3,10}  {4,10}" -f `
+            $r.Id, $r.Name.Substring(0, [math]::Min(22, $r.Name.Length)), $r.CpuPct, $r.MemMB, $r.PfMB) 'Gray'
+    }
+    WL "" 'Gray'
+    if ($Static) {
+        WL "  (single snapshot - live view needs an interactive console)" 'DarkGray'
+    } else {
+        WL "  [C]PU  [M]em  [P]agefile sort    [K]ill    [+/-] rows    [Q]uit" 'DarkGray'
+    }
+}
+
+function Show-ProcessMonitor {
+    # Live, htop-style process monitor: CPU/Mem/Swap bars over a process table that
+    # refreshes in place. Sort with C/M/P, kill with K (same critical-process guard
+    # as [K]), grow/shrink rows with +/-, quit with Q. In a non-interactive host
+    # (remoting / redirected input) it prints a single static snapshot instead.
+    [CmdletBinding()]
+    param([int]$RefreshSeconds = 2, [int]$Top = 15)
+
+    $cores = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).NumberOfLogicalProcessors
+    if (-not $cores) { $cores = 1 }
+
+    $interactive = $false
+    try {
+        $interactive = [Environment]::UserInteractive -and $Host.Name -eq 'ConsoleHost' -and
+                       -not [Console]::IsInputRedirected
+    } catch { $interactive = $false }
+
+    if (-not $interactive) {
+        Write-Header "Process Monitor"
+        $d = Get-ProcessMonitorData -Previous @{} -ElapsedSeconds 0 -Cores $cores
+        Write-ProcessMonitorFrame -Rows $d.Rows -Sort 'MEM' -Top $Top -RefreshSeconds $RefreshSeconds -Static
+        return
+    }
+
+    $sort = 'CPU'
+    $prev = @{}
+    $prevStamp = $null
+    $origCursor = $true
+    try { $origCursor = [Console]::CursorVisible } catch { }
+
+    try {
+        try { [Console]::CursorVisible = $false } catch { }
+        Clear-Host
+        while ($true) {
+            $now = Get-Date
+            $elapsed = if ($prevStamp) { ($now - $prevStamp).TotalSeconds } else { 0 }
+            $d = Get-ProcessMonitorData -Previous $prev -ElapsedSeconds $elapsed -Cores $cores
+            $prev = $d.Previous
+            $prevStamp = $now
+
+            try { [Console]::SetCursorPosition(0, 0) } catch { Clear-Host }
+            Write-ProcessMonitorFrame -Rows $d.Rows -Sort $sort -Top $Top -RefreshSeconds $RefreshSeconds
+
+            # Poll for keys until the next refresh is due (keeps the UI responsive).
+            $deadline = (Get-Date).AddSeconds($RefreshSeconds)
+            $redraw = $false
+            while (-not $redraw -and (Get-Date) -lt $deadline) {
+                if ([Console]::KeyAvailable) {
+                    $key = [Console]::ReadKey($true).Key
+                    switch ($key) {
+                        'C'        { $sort = 'CPU'; $redraw = $true }
+                        'M'        { $sort = 'MEM'; $redraw = $true }
+                        'P'        { $sort = 'PF';  $redraw = $true }
+                        'Q'        { return }
+                        'Escape'   { return }
+                        'Add'      { $Top++;                       $redraw = $true }
+                        'OemPlus'  { $Top++;                       $redraw = $true }
+                        'Subtract' { $Top = [math]::Max(5, $Top - 1); $redraw = $true }
+                        'OemMinus' { $Top = [math]::Max(5, $Top - 1); $redraw = $true }
+                        'K'        {
+                            try { [Console]::CursorVisible = $true } catch { }
+                            Clear-Host
+                            $idIn = Read-Host "  Kill which PID? (blank to cancel)"
+                            if ($idIn -match '^\d+$') {
+                                $kpid = [int]$idIn
+                                $proc = Get-Process -Id $kpid -ErrorAction SilentlyContinue
+                                if (-not $proc) {
+                                    Write-Host "  PID $kpid is not running." -ForegroundColor Yellow; Start-Sleep 1
+                                } elseif (Test-ProcessIsCritical -ProcessId $kpid) {
+                                    Write-Host "  Refusing: PID $kpid is CRITICAL (killing it bugchecks the OS)." -ForegroundColor Red; Start-Sleep 2
+                                } else {
+                                    $svc = @(Get-CimInstance Win32_Service -Filter "ProcessId=$kpid" -ErrorAction SilentlyContinue)
+                                    if ($svc.Count -gt 0) { Write-Host "  Note: PID $kpid hosts a service - [3] Manage a Service is safer." -ForegroundColor Yellow }
+                                    $c = Read-Host "  Force-kill PID $kpid ($($proc.ProcessName))? [Y/N]"
+                                    if ($c -match '^[Yy]') {
+                                        try { Stop-Process -Id $kpid -Force -ErrorAction Stop; Write-Host "  Killed PID $kpid." -ForegroundColor Green }
+                                        catch { Write-Host "  Kill failed: $($_.Exception.Message)" -ForegroundColor Red }
+                                        Start-Sleep 1
+                                    }
+                                }
+                            }
+                            try { [Console]::CursorVisible = $false } catch { }
+                            Clear-Host
+                            $prevStamp = $null; $prev = @{}   # reset CPU baseline after the pause
+                            $redraw = $true
+                        }
+                    }
+                }
+                if (-not $redraw) { Start-Sleep -Milliseconds 120 }
+            }
+        }
+    } finally {
+        try { [Console]::CursorVisible = $origCursor } catch { }
+        Clear-Host
+        Write-Host "  Process monitor closed. Type 'Show-ProcessMonitor' (or 'top') to reopen.`n" -ForegroundColor Cyan
+    }
+}
+
 function Get-ActiveSessions {
     Write-Header "Active User Sessions"
     $raw = query session 2>$null
@@ -1804,8 +2003,7 @@ function Show-AdminMenu {
         Write-Host "  [3]  Manage a Service (restart / kill)" -ForegroundColor Yellow
         Write-Host "  [4]  Windows Updates (pending + history)" -ForegroundColor Yellow
         Write-Host "  [5]  Full System Health Check"-ForegroundColor Cyan
-        Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
-        Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green
+        Write-Host "  [T]  Live Process Monitor (top)" -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
         Write-Host "  [L]  Tail a Log File"         -ForegroundColor Green
         Write-Host "  [V]  Search Event Logs"       -ForegroundColor Green
@@ -1854,8 +2052,7 @@ function Show-AdminMenu {
             '3' { Restart-ServiceByName }
             '4' { Get-PendingUpdates }
             '5' { Invoke-SystemHealthCheck }
-            'M' { Get-TopMemory }
-            'S' { Get-SwapUsage }
+            'T' { Show-ProcessMonitor }
             'A' { Get-ActiveSessions }
             'L' { Show-LogTail }
             'V' { Show-EventLogSearch }
@@ -1871,7 +2068,7 @@ function Show-AdminMenu {
                 return
             }
             default {
-                Write-Host "  Invalid option. Please choose 0-5, A, B, C, E, K, L, M, N, P, R, S, or V." -ForegroundColor Red
+                Write-Host "  Invalid option. Please choose 0-5, A, B, C, E, K, L, N, P, R, T, or V." -ForegroundColor Red
                 $ranTask = $false
             }
         }
@@ -1942,14 +2139,16 @@ function Enter-AdminSession {
 }
 
 Set-Alias -Name adminhub -Value Show-AdminMenu
+Set-Alias -Name top      -Value Show-ProcessMonitor
 
 # Explicit public surface (no 'prompt' - exporting it would hijack the caller's
 # prompt, including inside Enter-PSSession). Listed here AND in the manifest so the
 # surface is correct even if the .psm1 is imported directly.
-Export-ModuleMember -Alias adminhub -Function `
+Export-ModuleMember -Alias adminhub, top -Function `
     Show-AdminMenu, Invoke-SystemHealthCheck, Get-HealthSummary, Export-HealthReport,
     Invoke-AdminHubCheck, Enter-AdminSession, Get-DiskSpace, Get-TopResourceUsers,
     Get-TopMemory, Get-SwapUsage, Get-ActiveSessions, Show-LogTail, Show-NetworkStatus,
     Show-PortsConnections, Show-NetworkLocation, Restart-ServiceByName, Invoke-DiskCleanup,
     Get-PendingUpdates, Show-RecentSystemErrors, Show-HardwareHealth, Show-CpuMemoryFaults,
-    Show-TimeSync, Show-EventLogSearch, Stop-ProcessInteractive, Restart-ComputerInteractive
+    Show-TimeSync, Show-EventLogSearch, Stop-ProcessInteractive, Restart-ComputerInteractive,
+    Show-ProcessMonitor

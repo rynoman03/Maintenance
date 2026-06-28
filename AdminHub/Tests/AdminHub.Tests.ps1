@@ -30,8 +30,10 @@ Describe 'Module manifest' {
     It 'targets Windows PowerShell 5.1 or later' {
         (Test-ModuleManifest -Path $Manifest).PowerShellVersion | Should -BeGreaterOrEqual ([version]'5.1')
     }
-    It 'declares the adminhub alias' {
-        (Test-ModuleManifest -Path $Manifest).ExportedAliases.Keys | Should -Contain 'adminhub'
+    It 'declares the adminhub and top aliases' {
+        $aliases = (Test-ModuleManifest -Path $Manifest).ExportedAliases.Keys
+        $aliases | Should -Contain 'adminhub'
+        $aliases | Should -Contain 'top'
     }
 }
 
@@ -54,6 +56,9 @@ Describe 'Module import' {
     }
     It 'maps the adminhub alias to Show-AdminMenu' {
         (Get-Alias adminhub).ResolvedCommandName | Should -Be 'Show-AdminMenu'
+    }
+    It 'maps the top alias to Show-ProcessMonitor' {
+        (Get-Alias top).ResolvedCommandName | Should -Be 'Show-ProcessMonitor'
     }
     It 'exports the three triage commands' {
         foreach ($fn in 'Show-EventLogSearch', 'Stop-ProcessInteractive', 'Restart-ComputerInteractive') {

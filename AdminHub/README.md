@@ -28,8 +28,7 @@ The menu shown at startup:
   [3]  Manage a Service (restart / kill)
   [4]  Windows Updates (pending + history)
   [5]  Full System Health Check
-  [M]  Top 10 Memory Usage
-  [S]  Top 10 Swap/Page File
+  [T]  Live Process Monitor (top)
   [A]  Active User Sessions
   [L]  Tail a Log File
   [V]  Search Event Logs
@@ -220,33 +219,34 @@ Date       Result    Title
 > "Pending-update check needs admin - press [R] to elevate"; everything else
 > still shows.
 
-**`[M]` Top 10 Memory Usage**:
+**`[T]` Live Process Monitor (top)** — an `htop`-style live view that replaces the
+old static memory/swap snapshots. CPU / memory / page-file utilisation bars sit
+above a process table that **refreshes in place** every couple of seconds. CPU% is
+computed the way `htop`/Task Manager do it — from the change in each process's CPU
+time between refreshes, normalised by elapsed time and core count — so it shows
+*current* load, not lifetime totals (the first frame reads 0% until the second
+sample lands). Also reachable directly with the **`top`** alias.
+
+Keys: `C`/`M`/`P` sort by CPU / memory / page-file, `K` kills a PID (with the same
+critical-process guard as `[K]`), `+`/`-` change the row count, `Q` quits. In a
+non-interactive host (remoting / redirected input) it prints a single static frame
+instead of starting the live loop.
 
 ```text
-============================================================
-  Top 10 Processes by Memory Usage
-============================================================
+  SRV-DB01   up 6d 4h   procs: 312   sort: CPU   refresh 2s
+  CPU  [############........]  61%
+  Mem  [##############......]  71%   22.7 / 32.0 GB
+  Swap [###.................]  18%   2304 / 12288 MB
 
-Name       Id Mem(MB) PrivateMem(MB) Handles
-----       -- ------- -------------- -------
-sqlservr 1840 8421.55        8102.33    1204
-w3wp     5210 1422.10        1290.04     880
-MsMpEng  2304  612.77         540.12     742
+       PID  NAME                     CPU%     MEM(MB)      PF(MB)
+      5120  sqlservr                 42.3      3204.7      2104.2
+      8421  chrome                   11.0       842.1       640.2
+      2304  MsMpEng                   3.5       612.8       540.1
+  [C]PU  [M]em  [P]agefile sort    [K]ill    [+/-] rows    [Q]uit
 ```
 
-**`[S]` Top 10 Swap / Page File**:
-
-```text
-============================================================
-  Top 10 Processes by Page File (Swap) Usage
-============================================================
-  Pagefile: C:\pagefile.sys  Used: 13456 MB / 16384 MB  (82%)
-
-Name       Id PagedMem(MB) VirtualMem(MB) NonPagedMem(MB)
-----       -- ------------ -------------- ---------------
-sqlservr 1840      2104.22       18233.10           12.44
-w3wp     5210       640.18        4221.55            8.10
-```
+> The old static snapshots are still available as commands if you want a one-shot,
+> non-refreshing list: `Get-TopMemory` and `Get-SwapUsage`.
 
 **`[A]` Active User Sessions**:
 
@@ -496,8 +496,7 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 | 3   | Manage a Service (restart / kill) | Action  |
 | 4   | Windows Updates (pending + history) | Action |
 | 5   | Full System Health Check    | Read        |
-| M   | Top 10 Memory Usage         | Read        |
-| S   | Top 10 Swap / Page File     | Read        |
+| T   | Live Process Monitor (top)  | Read        |
 | A   | Active User Sessions        | Read        |
 | L   | Tail a Log File             | Read        |
 | V   | Search Event Logs           | Read        |
