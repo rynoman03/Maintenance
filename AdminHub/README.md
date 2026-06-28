@@ -210,6 +210,24 @@ falls back to cumulative CPU time if live sampling is unavailable.
 | `AdminProfile.ps1`         | The profile itself — banner, menu, and all task functions.     |
 | `Deploy-AdminProfile.ps1`  | Deploys the profile to all users on local or remote servers.   |
 | `Remove-AdminProfile.ps1`  | Rolls back the profile, restoring any backup that was made.    |
+| `Install-UserProfile.ps1`  | Installs/refreshes the profile for the current user only (no admin). |
+
+## Personal install (no admin)
+
+To load the menu for **just your own account** on a machine — handy on a
+workstation — install it to your per-user profile. No administrator rights
+required:
+
+```powershell
+.\Install-UserProfile.ps1                 # Windows PowerShell 5.x
+.\Install-UserProfile.ps1 -AllEditions    # also PowerShell 7
+```
+
+Re-run it any time to refresh after changes. It copies `AdminProfile.ps1` to
+`Documents\WindowsPowerShell\profile.ps1` (and `Documents\PowerShell\profile.ps1`
+with `-AllEditions`), backing up a pre-existing non-AdminHub profile first. To
+uninstall, delete that `profile.ps1`. For all-users / server installs, use
+**Deployment** below instead.
 
 ## Deployment
 
