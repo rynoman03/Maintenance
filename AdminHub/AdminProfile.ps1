@@ -181,7 +181,7 @@ function Get-TopResourceUsers {
             if (-not $cpu.ContainsKey($n)) { $cpu[$n] = [System.Collections.ArrayList]@() }
             [void]$cpu[$n].Add($s.CookedValue)
         }
-        Write-Host "`n  Top $Top by CPU (% of total CPU):" -ForegroundColor Cyan
+        Write-Header "Top $Top by CPU (% of total CPU)"
         $cpu.GetEnumerator() | ForEach-Object {
             [PSCustomObject]@{
                 Name   = $_.Key
@@ -195,7 +195,7 @@ function Get-TopResourceUsers {
     }
 
     # --- Top memory: current working set ---
-    Write-Host "  Top $Top by Memory (working set):" -ForegroundColor Cyan
+    Write-Header "Top $Top by Memory (working set)"
     Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First $Top Name, Id,
         @{N='Mem(MB)';       E={[math]::Round($_.WorkingSet / 1MB, 2)}},
         @{N='PrivateMem(MB)';E={[math]::Round($_.PrivateMemorySize64 / 1MB, 2)}} |
