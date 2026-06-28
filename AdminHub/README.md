@@ -78,7 +78,14 @@ screen before the full report is written to disk:
 | A   | Active User Sessions        | Read        |
 | C   | Disk Cleanup (C: drive)     | Destructive |
 | E   | Export Health Report        | Action      |
+| R   | Relaunch as Administrator   | Elevation   |
 | 0   | Exit to Shell               | —           |
+
+The menu loads in both standard and elevated sessions, so you can just open
+PowerShell normally. The header shows `[Administrator]` or `[Standard user]`,
+and the `[R]` option (shown only when not elevated) relaunches PowerShell as
+Administrator via UAC for tasks that need it (e.g. restart service, disk
+cleanup).
 
 After any task runs, you get a `[Enter] Return to menu / [X] Exit to shell`
 prompt so output stays on screen — press `X` then Enter to drop to the shell.
@@ -259,7 +266,9 @@ art with the "Standard" figlet font at <https://patorjk.com>.
 ## Requirements
 
 - Windows Server (or Windows client) with PowerShell 5.1+ or PowerShell 7+
-- Administrator rights to deploy and to run the administrative tasks
+- Administrator rights to **deploy** (the deploy/remove scripts require
+  elevation). The menu itself loads without elevation; only some tasks need
+  admin, reachable via the menu's `[R]` relaunch option.
 - An execution policy that allows the scripts to run. For testing, run
   `Set-ExecutionPolicy RemoteSigned` once from an elevated prompt (see
   **Deployment**). For production, **digitally sign the scripts** and run under

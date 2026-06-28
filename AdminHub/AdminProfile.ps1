@@ -1,8 +1,9 @@
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Administrative PowerShell profile applied to all users on Windows Servers.
     Presents an interactive menu of common administrative tasks on shell startup.
+    Loads in both standard and elevated sessions; tasks that need elevation can
+    relaunch as Administrator from the menu ([R]).
 .NOTES
     Execution policy: this script is not digitally signed. If PowerShell blocks
     it (or Deploy-AdminProfile.ps1) with "running scripts is disabled on this
@@ -45,11 +46,35 @@ function Show-Banner {
     Write-Host "  $BannerSubtitle" -ForegroundColor DarkGray
 }
 
+function Test-IsAdmin {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Invoke-RelaunchAsAdmin {
+    if (Test-IsAdmin) {
+        Write-Host "  Already running as Administrator." -ForegroundColor Green
+        return
+    }
+    $exe = (Get-Process -Id $PID).Path   # current host: powershell.exe or pwsh.exe
+    try {
+        Start-Process -FilePath $exe -Verb RunAs -ErrorAction Stop
+        Write-Host "  Opening an elevated window - approve the UAC prompt." -ForegroundColor Cyan
+    } catch {
+        Write-Host "  Elevation cancelled or failed: $_" -ForegroundColor Yellow
+    }
+}
+
 function prompt {
     $user   = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     $host_  = $env:COMPUTERNAME
     $path   = (Get-Location).Path
-    Write-Host "[ADMIN] " -ForegroundColor Red -NoNewline
+    if (Test-IsAdmin) {
+        Write-Host "[ADMIN] " -ForegroundColor Red -NoNewline
+    } else {
+        Write-Host "[USER] "  -ForegroundColor DarkGray -NoNewline
+    }
     Write-Host "$user" -ForegroundColor Yellow -NoNewline
     Write-Host "@$host_" -ForegroundColor Cyan -NoNewline
     Write-Host " $path" -ForegroundColor White -NoNewline
@@ -570,10 +595,16 @@ function Invoke-DiskCleanup {
 
 function Show-AdminMenu {
     Show-Banner
+    $admin = Test-IsAdmin
     while ($true) {
         Write-Host "`n" -NoNewline
         Write-Host ("=" * 60) -ForegroundColor DarkGray
-        Write-Host "  SERVER ADMIN MENU  -  $env:COMPUTERNAME" -ForegroundColor White
+        Write-Host "  SERVER ADMIN MENU  -  $env:COMPUTERNAME  " -ForegroundColor White -NoNewline
+        if ($admin) {
+            Write-Host "[Administrator]" -ForegroundColor Green
+        } else {
+            Write-Host "[Standard user]" -ForegroundColor Yellow
+        }
         Write-Host ("=" * 60) -ForegroundColor DarkGray
         Write-Host "  [1]  Disk Space"              -ForegroundColor Green
         Write-Host "  [2]  Top Resource Users (live)"-ForegroundColor Green
@@ -585,8 +616,20 @@ function Show-AdminMenu {
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
         Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
         Write-Host "  [E]  Export Health Report"    -ForegroundColor DarkCyan
+        if (-not $admin) {
+            Write-Host "  [R]  Relaunch as Administrator" -ForegroundColor Red
+        }
         Write-Host "  [0]  Exit to Shell"           -ForegroundColor Red
         Write-Host ("=" * 60) -ForegroundColor DarkGray
+        if (-not $admin) {
+            Write-Host "  Note: tasks like " -ForegroundColor DarkGray -NoNewline
+            Write-Host "[3]" -ForegroundColor Yellow -NoNewline
+            Write-Host " and " -ForegroundColor DarkGray -NoNewline
+            Write-Host "[C]" -ForegroundColor Magenta -NoNewline
+            Write-Host " need admin - press " -ForegroundColor DarkGray -NoNewline
+            Write-Host "[R]" -ForegroundColor Red -NoNewline
+            Write-Host " to elevate." -ForegroundColor DarkGray
+        }
         Write-Host "  Tip: after a task, press " -ForegroundColor DarkGray -NoNewline
         Write-Host "[X]" -ForegroundColor Red -NoNewline
         Write-Host " then Enter to exit  -  type " -ForegroundColor DarkGray -NoNewline
@@ -607,12 +650,13 @@ function Show-AdminMenu {
             'A' { Get-ActiveSessions }
             'C' { Invoke-DiskCleanup -Drive 'C' }
             'E' { Export-HealthReport }
+            'R' { Invoke-RelaunchAsAdmin }
             '0' {
                 Write-Host "`n  Exiting menu. Type 'Show-AdminMenu' to return.`n" -ForegroundColor Cyan
                 return
             }
             default {
-                Write-Host "  Invalid option. Please choose 0-5, A, C, E, M, or S." -ForegroundColor Red
+                Write-Host "  Invalid option. Please choose 0-5, A, C, E, M, R, or S." -ForegroundColor Red
                 $ranTask = $false
             }
         }
