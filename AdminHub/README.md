@@ -76,7 +76,7 @@ screen before the full report is written to disk:
 | M   | Top 10 Memory Usage         | Read        |
 | S   | Top 10 Swap / Page File     | Read        |
 | A   | Active User Sessions        | Read        |
-| N   | Network Adapters            | Read        |
+| N   | Network (adapters, teaming, DNS) | Read   |
 | C   | Disk Cleanup (C: drive)     | Destructive |
 | E   | Export Health Report        | Action      |
 | R   | Relaunch as Administrator   | Elevation   |
@@ -120,6 +120,20 @@ item, plus an overall status:
   discard/error counters. WARN if any adapter shows packet **errors**; discard
   counts are reported for context (counters are totals since boot, so a few
   discards are usually benign). Requires the NetAdapter module (Server 2012+).
+- **NIC teaming** — for each LBFO team, the teaming mode (incl. `Lacp`) and how
+  many member adapters are active. WARN if a team is not `Up` or is running on
+  fewer adapters than configured (e.g. only one link passing traffic, or a
+  failed member). Reported only where NIC teams exist.
+- **DNS resolution** — on domain-joined machines, resolves the AD domain name to
+  confirm DNS is answering; FAIL if it can't. Configured DNS servers are always
+  listed. Skipped (not flagged) when not domain-joined.
+- **Hardware (temp/PSU)** — physical machines only (skipped on VMs): temperature
+  and power-supply sensor health. On Dell servers this parses
+  `racadm getsensorinfo` (best-effort; raw output is captured in the report);
+  otherwise it falls back to ACPI thermal zones where available.
+- **Time sync** — domain-joined machines only: measures clock offset from the
+  domain via `w32tm`. WARN at ≥ 2s drift, FAIL at ≥ 30s (well before Kerberos'
+  5-minute skew limit).
 - **Uptime** — time since last boot
 
 In addition to the summary verdict, `[5]` prints the **most recent System-log
@@ -127,13 +141,15 @@ errors** (up to 20 Critical/Error events from the last 24 hours: time, level,
 source, event ID, and first line of the message) so you can see the actual
 events on screen, not just the count.
 
-`[5]` also lists each connected adapter's link speed and discard/error counts
-(also available on its own via `[N]`).
+`[5]` also shows the network panel (adapters + NIC teaming + DNS, also on its
+own via `[N]`), hardware temperature/power, and domain time sync. Checks that
+don't apply to the machine (no teams, not domain-joined, a VM) report a short
+"skipped"/"not available" note instead of failing.
 
 `[E]` writes the summary plus supporting detail tables (disk, physical-disk
-health, stopped services, network adapters, recent errors, top memory, active
-sessions) to a timestamped file at
-`C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
+health, network adapters, NIC teaming, DNS, hardware sensors, domain time sync,
+stopped services, recent errors, top memory, active sessions) to a timestamped
+file at `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
 
 ### Top Resource Users `[2]`
 

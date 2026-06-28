@@ -364,20 +364,162 @@ function Show-NetworkStatus {
     $nics = Get-NetworkAdapterHealth
     if ($null -eq $nics) {
         Write-Host "  Get-NetAdapter is not available on this system." -ForegroundColor Yellow
-        return
-    }
-    if (-not $nics) {
+    } elseif (-not $nics) {
         Write-Host "  No connected (Up) network adapters." -ForegroundColor Yellow
-        return
-    }
-    $nics | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize
-    $bad = $nics | Where-Object { ($_.RxDiscarded + $_.RxErrors + $_.TxDiscarded + $_.TxErrors) -gt 0 }
-    if ($bad) {
-        Write-Host ("  Discards/errors on: " + (($bad | ForEach-Object { $_.Name }) -join ', ')) -ForegroundColor Yellow
-        Write-Host "  (Counters are cumulative since boot; a few discards are usually benign.)" -ForegroundColor DarkGray
     } else {
-        Write-Host "  No discards or errors on any connected adapter." -ForegroundColor Green
+        $nics | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize
+        $bad = $nics | Where-Object { ($_.RxDiscarded + $_.RxErrors + $_.TxDiscarded + $_.TxErrors) -gt 0 }
+        if ($bad) {
+            Write-Host ("  Discards/errors on: " + (($bad | ForEach-Object { $_.Name }) -join ', ')) -ForegroundColor Yellow
+            Write-Host "  (Counters are cumulative since boot; a few discards are usually benign.)" -ForegroundColor DarkGray
+        } else {
+            Write-Host "  No discards or errors on any connected adapter." -ForegroundColor Green
+        }
     }
+    Show-NicTeaming
+    Show-DnsHealth
+}
+
+function Get-NicTeamingHealth {
+    # Windows NIC teaming (LBFO). Returns $null if the LBFO cmdlets are absent,
+    # an empty array if no teams exist, else one object per team with member and
+    # active-member counts so a degraded team (only one adapter passing traffic)
+    # can be flagged.
+    if (-not (Get-Command Get-NetLbfoTeam -ErrorAction SilentlyContinue)) { return $null }
+    $teams = @()
+    try { $teams = @(Get-NetLbfoTeam -ErrorAction Stop) } catch { return $null }
+    foreach ($t in $teams) {
+        $members = @()
+        try { $members = @(Get-NetLbfoTeamMember -Team $t.Name -ErrorAction Stop) } catch {}
+        $active = @($members | Where-Object { $_.OperationalStatus -eq 'Active' })
+        $failed = @($members | Where-Object { $_.OperationalStatus -notin @('Active','Standby') })
+        [PSCustomObject]@{
+            Team          = $t.Name
+            Mode          = $t.TeamingMode
+            LB            = $t.LoadBalancingAlgorithm
+            Status        = $t.Status
+            Members       = $members.Count
+            Active        = $active.Count
+            FailedMembers = (($failed | ForEach-Object { "$($_.Name)=$($_.OperationalStatus)" }) -join ', ')
+        }
+    }
+}
+
+function Show-NicTeaming {
+    Write-Header "NIC Teaming"
+    $teams = Get-NicTeamingHealth
+    if ($null -eq $teams) { Write-Host "  NIC teaming (LBFO) not available on this system." -ForegroundColor DarkGray; return }
+    if (-not $teams)      { Write-Host "  No NIC teams configured." -ForegroundColor DarkGray; return }
+    $teams | Format-Table Team, Mode, LB, Status, Members, Active, FailedMembers -AutoSize
+    $deg = @($teams | Where-Object { $_.Status -ne 'Up' -or $_.Active -lt $_.Members -or $_.FailedMembers })
+    if ($deg) {
+        foreach ($d in $deg) {
+            Write-Host ("  WARN: team '{0}' degraded - {1}/{2} active{3}" -f `
+                $d.Team, $d.Active, $d.Members, $(if ($d.FailedMembers) { "; $($d.FailedMembers)" })) -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  All teams healthy." -ForegroundColor Green
+    }
+}
+
+function Get-DnsHealth {
+    # Configured DNS servers, plus a resolution test against the AD domain when
+    # domain-joined (Resolved stays $null when not joined, so it is not flagged).
+    $servers = @()
+    try {
+        $servers = @(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object ServerAddresses | ForEach-Object { $_.ServerAddresses }) | Select-Object -Unique
+    } catch {}
+    $r = [PSCustomObject]@{ Servers = ($servers -join ', '); Target = $null; Resolved = $null; Addresses = $null; Error = $null }
+    if (-not $env:USERDNSDOMAIN) { return $r }
+    $r.Target = $env:USERDNSDOMAIN
+    try {
+        $ans = Resolve-DnsName -Name $r.Target -Type A -DnsOnly -QuickTimeout -ErrorAction Stop
+        $ips = @($ans | Where-Object IPAddress | ForEach-Object { $_.IPAddress })
+        $r.Resolved  = ($ips.Count -gt 0)
+        $r.Addresses = ($ips -join ', ')
+    } catch { $r.Resolved = $false; $r.Error = $_.Exception.Message }
+    return $r
+}
+
+function Show-DnsHealth {
+    Write-Header "DNS"
+    $d = Get-DnsHealth
+    Write-Host "  Servers: $(if ($d.Servers) { $d.Servers } else { '(none configured)' })" -ForegroundColor Gray
+    if ($null -eq $d.Resolved) {
+        Write-Host "  Resolution test skipped (not domain-joined)." -ForegroundColor DarkGray
+    } elseif ($d.Resolved) {
+        Write-Host "  Resolved $($d.Target) -> $($d.Addresses)" -ForegroundColor Green
+    } else {
+        Write-Host "  FAILED to resolve $($d.Target): $($d.Error)" -ForegroundColor Red
+    }
+}
+
+function Get-HardwareHealth {
+    # Physical-only temperature / power-supply health. Returns $null on VMs.
+    # Dell servers use racadm getsensorinfo (best-effort parse + raw capture);
+    # otherwise tries ACPI thermal zones. Reports 'INFO' when no source exists.
+    if (Test-IsVirtual) { return $null }
+    if ((Test-IsDell) -and (Get-RacadmPath)) {
+        $racadm = Get-RacadmPath
+        $raw = & $racadm getsensorinfo 2>&1
+        $text = ($raw | Out-String)
+        $failLines = @($raw | Where-Object { $_ -match '(?i)(critical|failed|non-recoverable|lost)' })
+        $warnLines = @($raw | Where-Object { $_ -match '(?i)\bwarning\b' })
+        $status = if ($failLines) { 'FAIL' } elseif ($warnLines) { 'WARN' } else { 'OK' }
+        $detail = if ($failLines) { (($failLines | Select-Object -First 4) -join '; ').Trim() }
+                  elseif ($warnLines) { (($warnLines | Select-Object -First 4) -join '; ').Trim() }
+                  else { 'all temperature/power sensors Ok' }
+        return [PSCustomObject]@{ Source = 'Dell racadm'; Status = $status; Detail = $detail; Raw = $text }
+    }
+    try {
+        $tz = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop
+        if ($tz) {
+            $temps = @($tz | ForEach-Object { [math]::Round(($_.CurrentTemperature / 10) - 273.15, 1) })
+            $max = ($temps | Measure-Object -Maximum).Maximum
+            $status = if ($max -ge 90) { 'FAIL' } elseif ($max -ge 80) { 'WARN' } else { 'OK' }
+            return [PSCustomObject]@{ Source = 'ACPI thermal'; Status = $status; Detail = "max zone temp ${max}C"; Raw = ($temps -join ', ') }
+        }
+    } catch {}
+    return [PSCustomObject]@{ Source = 'none'; Status = 'INFO'; Detail = 'no temperature/PSU sensor source (vendor tools required)'; Raw = '' }
+}
+
+function Show-HardwareHealth {
+    Write-Header "Hardware (temperature / power)"
+    $hw = Get-HardwareHealth
+    if ($null -eq $hw) { Write-Host "  Skipped (virtual machine)." -ForegroundColor DarkGray; return }
+    $color = switch ($hw.Status) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'DarkGray' } }
+    Write-Host "  [$($hw.Status)] $($hw.Detail)  (source: $($hw.Source))" -ForegroundColor $color
+    if ($hw.Status -eq 'FAIL') {
+        Write-Host "  Run 'racadm getsensorinfo' (or your vendor CLI) for full sensor detail." -ForegroundColor DarkGray
+    }
+}
+
+function Get-TimeSyncHealth {
+    # Domain time drift via w32tm. Returns $null when not domain-joined.
+    # WARN if |offset| >= 2s, FAIL if >= 30s (well before Kerberos' 5-min skew).
+    if (-not $env:USERDNSDOMAIN) { return $null }
+    $source = (w32tm /query /source 2>&1 | Select-Object -First 1)
+    $status = 'WARN'; $detail = "could not measure offset (source: $source)"; $offset = $null
+    try {
+        $chart = w32tm /stripchart /computer:$env:USERDNSDOMAIN /samples:1 /dataonly 2>&1
+        $line  = $chart | Where-Object { $_ -match '([+-]\d+\.\d+)s' } | Select-Object -Last 1
+        if ($line -match '([+-]\d+\.\d+)s') {
+            $offset = [double]$Matches[1]
+            $abs = [math]::Abs($offset)
+            $status = if ($abs -ge 30) { 'FAIL' } elseif ($abs -ge 2) { 'WARN' } else { 'OK' }
+            $detail = ("offset {0}s from {1}" -f $offset, $source)
+        }
+    } catch { $detail = "w32tm error: $($_.Exception.Message)" }
+    [PSCustomObject]@{ Source = $source; Offset = $offset; Status = $status; Detail = $detail }
+}
+
+function Show-TimeSync {
+    Write-Header "Domain Time Sync"
+    $t = Get-TimeSyncHealth
+    if ($null -eq $t) { Write-Host "  Skipped (not domain-joined)." -ForegroundColor DarkGray; return }
+    $color = switch ($t.Status) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'DarkGray' } }
+    Write-Host "  [$($t.Status)] $($t.Detail)" -ForegroundColor $color
 }
 
 function Get-HealthSummary {
@@ -479,6 +621,36 @@ function Get-HealthSummary {
             Detail = ("{0} up; errors: {1}, discards: {2} (since boot)" -f @($nics).Count, $netErr, $netDisc) }
     }
 
+    # --- NIC teaming (degraded = not Up or fewer active members than configured) ---
+    $teams = Get-NicTeamingHealth
+    if ($teams) {
+        $deg = @($teams | Where-Object { $_.Status -ne 'Up' -or $_.Active -lt $_.Members -or $_.FailedMembers })
+        $st = if ($deg) { 'WARN' } else { 'OK' }
+        $detail = if ($deg) { (($deg | ForEach-Object { "$($_.Team) $($_.Active)/$($_.Members)" }) -join ', ') }
+                  else { "$(@($teams).Count) team(s) healthy" }
+        $checks += [PSCustomObject]@{ Name = 'NIC teaming'; Status = $st; Detail = $detail }
+    }
+
+    # --- DNS resolution (domain-joined only) ---
+    $dns = Get-DnsHealth
+    if ($null -ne $dns.Resolved) {
+        $st = if ($dns.Resolved) { 'OK' } else { 'FAIL' }
+        $detail = if ($dns.Resolved) { "resolved $($dns.Target)" } else { "cannot resolve $($dns.Target)" }
+        $checks += [PSCustomObject]@{ Name = 'DNS resolution'; Status = $st; Detail = $detail }
+    }
+
+    # --- Hardware temperature / power (physical only) ---
+    $hw = Get-HardwareHealth
+    if ($hw -and $hw.Status -in @('OK','WARN','FAIL')) {
+        $checks += [PSCustomObject]@{ Name = 'Hardware (temp/PSU)'; Status = $hw.Status; Detail = "$($hw.Detail) [$($hw.Source)]" }
+    }
+
+    # --- Domain time drift ---
+    $time = Get-TimeSyncHealth
+    if ($time) {
+        $checks += [PSCustomObject]@{ Name = 'Time sync'; Status = $time.Status; Detail = $time.Detail }
+    }
+
     # --- Uptime (informational) ---
     if ($os) {
         $uptime = (Get-Date) - $os.LastBootUpTime
@@ -553,6 +725,29 @@ function Export-HealthReport {
         if ($nic) { $nic | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize | Out-String }
         else { "  (Get-NetAdapter unavailable or no connected adapters)`n" }
 
+        "`n[NIC TEAMING]"
+        $tm = Get-NicTeamingHealth
+        if ($null -eq $tm) { "  (LBFO not available)`n" }
+        elseif (-not $tm) { "  (no teams configured)`n" }
+        else { $tm | Format-Table Team, Mode, LB, Status, Members, Active, FailedMembers -AutoSize | Out-String }
+
+        "`n[DNS]"
+        $dn = Get-DnsHealth
+        "  Servers: $($dn.Servers)"
+        if ($null -eq $dn.Resolved) { "  Resolution test: skipped (not domain-joined)" }
+        elseif ($dn.Resolved) { "  Resolved $($dn.Target) -> $($dn.Addresses)" }
+        else { "  FAILED to resolve $($dn.Target): $($dn.Error)" }
+
+        "`n[HARDWARE - temperature / power]"
+        $hwr = Get-HardwareHealth
+        if ($null -eq $hwr) { "  (skipped - virtual machine)`n" }
+        else { "  [$($hwr.Status)] $($hwr.Detail) (source: $($hwr.Source))"; if ($hwr.Raw) { $hwr.Raw } }
+
+        "`n[DOMAIN TIME SYNC]"
+        $tsr = Get-TimeSyncHealth
+        if ($null -eq $tsr) { "  (skipped - not domain-joined)`n" }
+        else { "  [$($tsr.Status)] $($tsr.Detail)" }
+
         "`n[RECENT SYSTEM ERRORS - last 24h]"
         $ev = Get-RecentSystemErrors -Hours 24 -Max 20 |
             Select-Object @{N='Time';E={$_.TimeCreated}}, @{N='Level';E={$_.LevelDisplayName}},
@@ -589,6 +784,8 @@ function Invoke-SystemHealthCheck {
     Get-DiskSpace
     Get-TopResourceUsers -Seconds 3
     Show-NetworkStatus
+    Show-HardwareHealth
+    Show-TimeSync
     Show-RecentSystemErrors
 }
 
@@ -705,7 +902,7 @@ function Show-AdminMenu {
         Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
         Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
-        Write-Host "  [N]  Network Adapters"        -ForegroundColor Green
+        Write-Host "  [N]  Network (adapters, teaming, DNS)" -ForegroundColor Green
         Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
         Write-Host "  [E]  Export Health Report"    -ForegroundColor DarkCyan
         if (-not $admin) {
