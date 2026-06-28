@@ -88,6 +88,289 @@ screen before the full report is written to disk:
 > samples in monochrome. To add a real color screenshot, capture your PowerShell
 > window and drop a PNG in `AdminHub/images/`, then reference it here.
 
+## Sample output by option
+
+Representative output for each menu option (illustrative `SRV-DB01` data).
+
+### System & Diagnostics
+
+**`[1]` Disk Space** — per-drive usage, then an optional scan for the largest files:
+
+```text
+============================================================
+  Disk Space
+============================================================
+
+Name Used(GB) Free(GB) Total(GB)
+---- -------- -------- ---------
+C        78.4    42.11    120.51
+D       210.9   289.10    500.00
+E       921.0    78.70    999.70
+
+  Scan drives for the 5 largest files? Can be slow on large volumes [Y/N]: Y
+
+  Top 5 largest files on C: (scanning, may take a while on large drives)...
+
+Size(MB) FullName
+-------- --------
+ 8192.00 C:\pagefile.sys
+ 4096.00 C:\Windows\MEMORY.DMP
+ 2048.55 C:\Program Files\Microsoft SQL Server\MSSQL\DATA\tempdb.mdf
+  912.30 C:\inetpub\logs\LogFiles\W3SVC1\u_ex260626.log
+  640.10 C:\Windows\Logs\CBS\CBS.log
+```
+
+**`[2]` Top Resource Users** — live-sampled CPU plus working-set memory:
+
+```text
+============================================================
+  Top Resource Users (CPU sampled over 3s)
+============================================================
+  Sampling CPU...
+
+============================================================
+  Top 10 by CPU (% of total CPU)
+============================================================
+
+Name        CPU%
+----        ----
+sqlservr    34.2
+w3wp        12.7
+MsMpEng      6.1
+
+============================================================
+  Top 10 by Memory (working set)
+============================================================
+
+Name       Id Mem(MB) PrivateMem(MB)
+----       -- ------- --------------
+sqlservr 1840 8421.55        8102.33
+w3wp     5210 1422.10        1290.04
+```
+
+**`[3]` Restart / Kill a Service** — shows PID/owning process and blast radius, then restart or force-kill:
+
+```text
+  Enter service name or display name: Spooler
+
+============================================================
+  Service: Print Spooler
+============================================================
+  Name      : Spooler
+  Status    : Running
+  StartType : Auto
+  PID       : 4148 (svchost)
+  SHARED PID: also hosts 1 other service(s): Fax
+  Killing this process stops ALL of them.
+
+  [R] Restart    [K] Kill process (force)    [C] Cancel
+  Choose: K
+  Force-kill PID 4148 (svchost) and 1 co-hosted service(s)? Abrupt - unsaved state is lost. [Y/N]: Y
+  Killed PID 4148.
+  Start the killed service(s) again now? [Y/N]: Y
+  Started Spooler.
+  Started Fax.
+  Now: Running  (PID 9012)
+```
+
+A kill that would crash the box is refused:
+
+```text
+  [R] Restart    [K] Kill process (force)    [C] Cancel
+  Choose: K
+  Refusing to kill PID 1612: hosts kernel-critical service(s) [RpcSs, RpcEptMapper] - killing it would crash the OS.
+  Use [R] Restart instead.
+```
+
+**`[4]` Pending Windows Updates**:
+
+```text
+============================================================
+  Pending Windows Updates
+============================================================
+
+KB        Title                                 Size   MsrcSeverity
+--        -----                                 ----   ------------
+KB5040442 2026-06 Cumulative Update for Server  712 MB Critical
+
+  REBOOT PENDING - Windows Update
+```
+
+**`[M]` Top 10 Memory Usage**:
+
+```text
+============================================================
+  Top 10 Processes by Memory Usage
+============================================================
+
+Name       Id Mem(MB) PrivateMem(MB) Handles
+----       -- ------- -------------- -------
+sqlservr 1840 8421.55        8102.33    1204
+w3wp     5210 1422.10        1290.04     880
+MsMpEng  2304  612.77         540.12     742
+```
+
+**`[S]` Top 10 Swap / Page File**:
+
+```text
+============================================================
+  Top 10 Processes by Page File (Swap) Usage
+============================================================
+  Pagefile: C:\pagefile.sys  Used: 13456 MB / 16384 MB  (82%)
+
+Name       Id PagedMem(MB) VirtualMem(MB) NonPagedMem(MB)
+----       -- ------------ -------------- ---------------
+sqlservr 1840      2104.22       18233.10           12.44
+w3wp     5210       640.18        4221.55            8.10
+```
+
+**`[A]` Active User Sessions**:
+
+```text
+============================================================
+  Active User Sessions
+============================================================
+
+SessionName Username      ID State
+----------- --------      -- -----
+services                  0  Disc
+console     Administrator 1  Active
+rdp-tcp#2   r.cashier     3  Active
+```
+
+**`[L]` Tail a Log File** — quick-pick of common logs (or paste a path):
+
+```text
+============================================================
+  Tail a Log File
+============================================================
+  Quick pick a common log, or enter a path:
+    [1] CBS (Windows servicing)
+        C:\Windows\Logs\CBS\CBS.log
+    [2] IIS logs (newest)
+        C:\inetpub\logs\LogFiles
+    [3] System32 LogFiles
+        C:\Windows\System32\LogFiles
+    [4] AdminHub health reports
+        C:\AdminReports
+    [P] Enter a custom path
+  Select a number, P, or paste a path: 2
+
+  Directory given - tailing newest file: u_ex260627.log
+  How many lines? [default 20]: 10
+  Follow live, like tail -f? [Y/N]: N
+
+  --- C:\inetpub\logs\LogFiles\W3SVC1\u_ex260627.log  (last 10 lines) ---
+  2026-06-27 14:31:02 GET /health 200 12
+  2026-06-27 14:31:09 POST /api/login 200 41
+```
+
+### Networking
+
+**`[N]` Network** — adapters, gateway ping, NIC teaming, DNS, and network location:
+
+```text
+============================================================
+  Network Adapters
+============================================================
+
+Name  LinkSpeed RxDiscarded RxErrors TxDiscarded TxErrors
+----  --------- ----------- -------- ----------- --------
+Team1     2 Gbps           0        0           0        0
+
+  No discards or errors on any connected adapter.
+
+============================================================
+  Default Gateway
+============================================================
+  [OK]   10.20.0.1 via Team1 - reachable
+
+============================================================
+  NIC Teaming
+============================================================
+
+Team  Mode LB      Status Members Active FailedMembers
+----  ---- --      ------ ------- ------ -------------
+Team1 Lacp Dynamic Up           2      2
+
+  All teams healthy.
+
+============================================================
+  DNS
+============================================================
+  Servers: 10.20.0.10, 10.20.0.11
+  Resolved corp.example.com -> 10.20.0.10, 10.20.0.11
+
+============================================================
+  Network Location (NLA)
+============================================================
+  [OK] NlaSvc running; profile: DomainAuthenticated
+```
+
+**`[P]` Listening Ports / Connections**:
+
+```text
+============================================================
+  Listening Ports
+============================================================
+
+Proto LocalAddress Port ProcessId Process
+----- ------------ ---- --------- -------
+TCP   0.0.0.0       135      1744 svchost
+TCP   0.0.0.0       445         4 System
+TCP   0.0.0.0       3389     2332 svchost
+TCP   0.0.0.0      1433      1840 sqlservr
+TCP   0.0.0.0        80      4596 w3wp
+UDP   0.0.0.0       123      1800 svchost
+
+  5 TCP + 1 UDP listening.
+
+============================================================
+  Active TCP Connections
+============================================================
+  Established  37
+  TimeWait     12
+  Listen        9
+
+  Established (up to 15):
+
+Local           Remote           Process
+-----           ------           -------
+10.20.0.40:1433 10.20.0.55:51022 sqlservr
+10.20.0.40:80   10.20.0.60:49788 w3wp
+```
+
+### Maintenance
+
+**`[C]` Disk Cleanup** — previews recoverable space, then cleans on confirmation:
+
+```text
+============================================================
+  Disk Cleanup - C:
+============================================================
+
+Location                      Files Size(MB)
+--------                      ----- --------
+Windows Temp                    412   318.44
+User Temp                      1203   221.07
+CBS Logs                         58   612.90
+SoftwareDistribution\Download   340  1844.21
+
+  Total recoverable: 2996.62 MB
+
+  Proceed with cleanup? [Y/N]: Y
+  Cleaned: Windows Temp
+  Cleaned: User Temp
+  Cleaned: CBS Logs
+  Cleaned: SoftwareDistribution\Download
+
+  Done. Freed approximately 2996.62 MB on C:.
+  C: - Used: 75.4 GB  Free: 45.1 GB  Total: 120.5 GB
+```
+
+**`[E]` Export Health Report** — prints the health summary shown above and writes the
+full report to `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
+
 ## Menu options
 
 On screen the menu is grouped into **System & Diagnostics**, **Networking**
