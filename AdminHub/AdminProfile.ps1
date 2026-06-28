@@ -152,7 +152,29 @@ function Get-DellStorageHealth {
     return [PSCustomObject]@{ Status = 'OK'; Detail = 'all physical/virtual disks Ok'; Raw = $raw }
 }
 
+function Get-TopFilesOnDrive {
+    # Streaming top-N largest files under $Root. Keeps only $Top items in memory
+    # (not the whole tree) and skips inaccessible paths. Reparse-point files are
+    # filtered to avoid counting junction/symlink targets twice.
+    param([string]$Root, [int]$Top = 5)
+    $list = New-Object System.Collections.Generic.List[object]
+    Get-ChildItem -LiteralPath $Root -File -Recurse -Force -ErrorAction SilentlyContinue |
+        Where-Object { -not ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) } |
+        ForEach-Object {
+            if ($list.Count -lt $Top) {
+                $list.Add($_)
+            } else {
+                $min = $list[0]
+                foreach ($x in $list) { if ($x.Length -lt $min.Length) { $min = $x } }
+                if ($_.Length -gt $min.Length) { [void]$list.Remove($min); $list.Add($_) }
+            }
+        }
+    $list | Sort-Object Length -Descending |
+        Select-Object @{N='Size(MB)'; E={[math]::Round($_.Length / 1MB, 2)}}, FullName
+}
+
 function Get-DiskSpace {
+    param([switch]$IncludeTopFiles, [int]$Top = 5)
     Write-Header "Disk Space"
     Get-PSDrive -PSProvider FileSystem |
         Select-Object Name,
@@ -160,6 +182,18 @@ function Get-DiskSpace {
             @{N='Free(GB)';  E={[math]::Round($_.Free/1GB,2)}},
             @{N='Total(GB)'; E={[math]::Round(($_.Used+$_.Free)/1GB,2)}} |
         Format-Table -AutoSize
+
+    if ($IncludeTopFiles) {
+        # Only scan fixed local disks (DriveType 3) - never network/removable.
+        $fixed = Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue
+        foreach ($d in $fixed) {
+            $root = "$($d.DeviceID)\"
+            Write-Host "`n  Top $Top largest files on $($d.DeviceID) (scanning, may take a while on large drives)..." -ForegroundColor DarkGray
+            $files = Get-TopFilesOnDrive -Root $root -Top $Top
+            if ($files) { $files | Format-Table 'Size(MB)', FullName -AutoSize }
+            else { Write-Host "    (no files found or access denied)" -ForegroundColor DarkGray }
+        }
+    }
 }
 
 function Get-TopResourceUsers {
@@ -1130,7 +1164,7 @@ function Show-AdminMenu {
 
         $ranTask = $true
         switch ($choice.ToUpper()) {
-            '1' { Get-DiskSpace }
+            '1' { Get-DiskSpace -IncludeTopFiles }
             '2' { Get-TopResourceUsers }
             '3' { Restart-ServiceByName }
             '4' { Get-PendingUpdates }

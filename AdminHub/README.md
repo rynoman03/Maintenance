@@ -95,6 +95,16 @@ Exiting leaves all task functions loaded in the session; type `Show-AdminMenu`
 at any time to reopen the menu. The menu also shows this tip on screen each time
 it is drawn.
 
+### Disk space `[1]`
+
+Shows used/free/total per filesystem drive, then the **top 5 largest files on
+each fixed drive** (with full path) to help track down what's filling a volume.
+Finding the largest files means walking the whole drive, so this can take a
+while on large volumes — it uses a streaming top-N scan (only the current 5 are
+held in memory) and skips paths it can't read. This file scan runs only from the
+`[1]` menu option; the same disk-space summary inside the health check `[5]`
+stays fast and does not scan files.
+
 ### Health checks
 
 Both **Full System Health Check** `[5]` and **Export Health Report** `[E]` run a
