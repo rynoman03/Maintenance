@@ -159,14 +159,20 @@ Run from an elevated (Administrator) PowerShell prompt.
 # Local server
 .\Deploy-AdminProfile.ps1
 
-# One or more remote servers (uses the \\SERVER\Admin$ share)
+# One or more remote servers (uses the \\SERVER\Admin$ and \\SERVER\C$ shares)
 .\Deploy-AdminProfile.ps1 -ComputerName SRV01,SRV02,SRV03 -Force
 ```
 
-The profile is written to the **AllUsersAllHosts** path:
+The profile is written to the **AllUsersAllHosts** path for each installed
+PowerShell edition:
 
 - Windows PowerShell 5.x: `%SystemRoot%\System32\WindowsPowerShell\v1.0\profile.ps1`
+  (remote: `\\SERVER\Admin$\System32\...`)
 - PowerShell 7+: `%ProgramFiles%\PowerShell\7\profile.ps1`
+  (remote: `\\SERVER\C$\Program Files\PowerShell\7\...`)
+
+An edition that isn't installed on the target is skipped automatically (use
+`-Verbose` to see which).
 
 Existing profiles are backed up with a timestamped `.bak_` suffix before being
 overwritten.

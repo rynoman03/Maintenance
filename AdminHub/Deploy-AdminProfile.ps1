@@ -39,42 +39,52 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Destination inside the target machine: AllUsersAllHosts profile
-# Windows PowerShell 5.x : $env:SystemRoot\System32\WindowsPowerShell\v1.0\profile.ps1
-# PowerShell 7+           : $env:ProgramFiles\PowerShell\7\profile.ps1
-# This script targets Windows PowerShell (5.x) by default.
-$PS5ProfileRel  = "System32\WindowsPowerShell\v1.0\profile.ps1"
-$PS7ProfileRel  = "PowerShell\7\profile.ps1"
-
-function Deploy-ToLocal {
-    param([string]$Root)
-    foreach ($rel in @($PS5ProfileRel, $PS7ProfileRel)) {
-        $dest = Join-Path $Root $rel
-        $dir  = Split-Path $dest
-
-        if (-not (Test-Path $dir)) {
-            Write-Verbose "Skipping $dest (directory not found - PowerShell version not installed)"
-            continue
-        }
-
-        if ((Test-Path $dest) -and -not $Force) {
-            $ans = Read-Host "Profile already exists at '$dest'. Overwrite? [Y/N]"
-            if ($ans -notmatch '^[Yy]') {
-                Write-Host "  Skipped $dest" -ForegroundColor Yellow
-                continue
-            }
-        }
-
-        # Backup existing profile
-        if (Test-Path $dest) {
-            $backup = "$dest.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-            Copy-Item $dest $backup
-            Write-Host "  Backed up existing profile -> $backup" -ForegroundColor DarkYellow
-        }
-
-        Copy-Item $ProfileSourcePath $dest -Force
-        Write-Host "  Deployed -> $dest" -ForegroundColor Green
+# Destination: the AllUsersAllHosts profile.ps1 for each PowerShell edition. The
+# two editions live under DIFFERENT roots, so they cannot share one base path:
+#   Windows PowerShell 5.x : $env:SystemRoot\System32\WindowsPowerShell\v1.0\profile.ps1
+#   PowerShell 7+          : $env:ProgramFiles\PowerShell\7\profile.ps1
+# Remote targets reach them via admin shares: Admin$ maps to %SystemRoot%, and
+# C$ maps to the system drive (used to reach Program Files for PS7).
+function Get-ProfileTargets {
+    param([string]$Computer)
+    if ($Computer -eq $env:COMPUTERNAME -or $Computer -eq 'localhost') {
+        return @(
+            (Join-Path $env:SystemRoot   'System32\WindowsPowerShell\v1.0\profile.ps1'),
+            (Join-Path $env:ProgramFiles 'PowerShell\7\profile.ps1')
+        )
     }
+    return @(
+        "\\$Computer\Admin$\System32\WindowsPowerShell\v1.0\profile.ps1",
+        "\\$Computer\C$\Program Files\PowerShell\7\profile.ps1"
+    )
+}
+
+function Deploy-ToPath {
+    param([string]$Dest)
+
+    $dir = Split-Path $Dest
+    if (-not (Test-Path $dir)) {
+        Write-Verbose "Skipping $Dest (PowerShell edition not installed at this location)"
+        return
+    }
+
+    if ((Test-Path $Dest) -and -not $Force) {
+        $ans = Read-Host "Profile already exists at '$Dest'. Overwrite? [Y/N]"
+        if ($ans -notmatch '^[Yy]') {
+            Write-Host "  Skipped $Dest" -ForegroundColor Yellow
+            return
+        }
+    }
+
+    # Backup existing profile
+    if (Test-Path $Dest) {
+        $backup = "$Dest.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        Copy-Item $Dest $backup
+        Write-Host "  Backed up existing profile -> $backup" -ForegroundColor DarkYellow
+    }
+
+    Copy-Item $ProfileSourcePath $Dest -Force
+    Write-Host "  Deployed -> $Dest" -ForegroundColor Green
 }
 
 # -- Validate source ------------------------------------------------------------
@@ -86,17 +96,14 @@ if (-not (Test-Path $ProfileSourcePath)) {
 foreach ($computer in $ComputerName) {
     Write-Host "`nDeploying to: $computer" -ForegroundColor Cyan
 
-    if ($computer -eq $env:COMPUTERNAME -or $computer -eq 'localhost') {
-        # Local deployment
-        Deploy-ToLocal -Root $env:SystemRoot
-    } else {
-        # Remote deployment via admin share (\\SERVER\Admin$)
-        $adminShare = "\\$computer\Admin$"
-        if (-not (Test-Path $adminShare)) {
-            Write-Warning "Cannot reach admin share $adminShare - skipping $computer"
-            continue
-        }
-        Deploy-ToLocal -Root $adminShare
+    $isLocal = ($computer -eq $env:COMPUTERNAME -or $computer -eq 'localhost')
+    if (-not $isLocal -and -not (Test-Path "\\$computer\Admin$")) {
+        Write-Warning "Cannot reach $computer (\\$computer\Admin$) - skipping"
+        continue
+    }
+
+    foreach ($dest in (Get-ProfileTargets -Computer $computer)) {
+        Deploy-ToPath -Dest $dest
     }
 }
 
