@@ -380,13 +380,57 @@ function Test-PendingReboot {
     return $reasons
 }
 
+function Get-UpdateHistory {
+    # Installed updates from the Windows Update history (COM API), newest first.
+    # Read-only - works WITHOUT admin. Returns $null if the API is unavailable.
+    param([int]$Max = 100)
+    try {
+        $searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher()
+        $count = $searcher.GetTotalHistoryCount()
+        if ($count -le 0) { return @() }
+        @($searcher.QueryHistory(0, [Math]::Min($count, $Max))) |
+            Where-Object { $_.Operation -eq 1 -and $_.Title } |   # 1 = Installation
+            ForEach-Object {
+                [PSCustomObject]@{
+                    Date   = $_.Date
+                    Title  = $_.Title
+                    Result = switch ($_.ResultCode) { 2 {'Succeeded'} 3 {'Succeeded w/errors'} 4 {'Failed'} 5 {'Aborted'} default {"code $($_.ResultCode)"} }
+                }
+            } | Sort-Object Date -Descending
+    } catch { return $null }
+}
+
 function Get-PendingUpdates {
-    Write-Header "Pending Windows Updates"
-    if (-not (Get-Module -ListAvailable PSWindowsUpdate)) {
+    Write-Header "Windows Updates"
+
+    # Last applied (no admin needed): prefer WU history, fall back to Get-HotFix.
+    $hist = Get-UpdateHistory -Max 100
+    $lastDate = if ($hist) { ($hist | Select-Object -First 1).Date } else { $null }
+    if (-not $lastDate) {
+        $hf = Get-HotFix -ErrorAction SilentlyContinue | Where-Object InstalledOn |
+              Sort-Object InstalledOn -Descending | Select-Object -First 1
+        if ($hf) { $lastDate = $hf.InstalledOn }
+    }
+    if ($lastDate) {
+        $age = [int]((Get-Date) - $lastDate).TotalDays
+        $color = if ($age -ge 60) { 'Red' } elseif ($age -ge 35) { 'Yellow' } else { 'Green' }
+        Write-Host ("  Last update installed: {0:yyyy-MM-dd}  ({1} days ago)" -f $lastDate, $age) -ForegroundColor $color
+    } else {
+        Write-Host "  Last update installed: unknown" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+
+    # Pending updates require an online search, which needs admin.
+    if (-not (Test-IsAdmin)) {
+        Write-Host "  Pending-update check needs admin - press [R] at the menu to elevate." -ForegroundColor Yellow
+    } elseif (-not (Get-Module -ListAvailable PSWindowsUpdate)) {
         Write-Host "  PSWindowsUpdate module not found. Install with: Install-Module PSWindowsUpdate" -ForegroundColor Yellow
     } else {
         Import-Module PSWindowsUpdate
-        Get-WindowsUpdate | Select-Object KB, Title, Size, MsrcSeverity | Format-Table -AutoSize
+        Write-Host "  Checking for pending updates..." -ForegroundColor DarkGray
+        $pending = Get-WindowsUpdate
+        if ($pending) { $pending | Select-Object KB, Title, Size, MsrcSeverity | Format-Table -AutoSize }
+        else { Write-Host "  No pending updates." -ForegroundColor Green }
     }
 
     Write-Host ""
@@ -395,6 +439,19 @@ function Get-PendingUpdates {
         Write-Host "  REBOOT PENDING - $($rebootReasons -join ', ')" -ForegroundColor Red
     } else {
         Write-Host "  No reboot pending." -ForegroundColor Green
+    }
+
+    # Installed-update history, by date (no admin needed).
+    Write-Host ""
+    $ans = Read-Host "  View installed updates by date? [Y/N]"
+    if ($ans -match '^[Yy]') {
+        if ($null -eq $hist)   { Write-Host "  Update history unavailable." -ForegroundColor Yellow }
+        elseif (-not $hist)    { Write-Host "  No installed-update history found." -ForegroundColor DarkGray }
+        else {
+            $hist | Select-Object @{N='Date'; E={ '{0:yyyy-MM-dd}' -f $_.Date }}, Result, Title |
+                Select-Object -First 30 | Format-Table -AutoSize -Wrap
+            Write-Host "  Showing up to 30 most recent installs." -ForegroundColor DarkGray
+        }
     }
 }
 
@@ -1497,7 +1554,7 @@ function Show-AdminMenu {
         Write-Host "  [1]  Disk Space"              -ForegroundColor Green
         Write-Host "  [2]  Top Resource Users (live)"-ForegroundColor Green
         Write-Host "  [3]  Restart / Kill a Service"-ForegroundColor Yellow
-        Write-Host "  [4]  Pending Windows Updates" -ForegroundColor Yellow
+        Write-Host "  [4]  Windows Updates (pending + history)" -ForegroundColor Yellow
         Write-Host "  [5]  Full System Health Check"-ForegroundColor Cyan
         Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
         Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green

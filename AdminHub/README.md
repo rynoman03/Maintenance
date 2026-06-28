@@ -26,7 +26,7 @@ The menu shown at startup:
   [1]  Disk Space
   [2]  Top Resource Users (live)
   [3]  Restart / Kill a Service
-  [4]  Pending Windows Updates
+  [4]  Windows Updates (pending + history)
   [5]  Full System Health Check
   [M]  Top 10 Memory Usage
   [S]  Top 10 Swap/Page File
@@ -185,19 +185,34 @@ A kill that would crash the box is refused:
   Use [R] Restart instead.
 ```
 
-**`[4]` Pending Windows Updates**:
+**`[4]` Windows Updates (pending + history)** — last-applied date, pending list
+(needs admin), reboot status, and an optional by-date installed history. The
+last-applied date, reboot status, and history work without elevation:
 
 ```text
 ============================================================
-  Pending Windows Updates
+  Windows Updates
 ============================================================
+  Last update installed: 2026-06-20  (7 days ago)
 
 KB        Title                                 Size   MsrcSeverity
 --        -----                                 ----   ------------
 KB5040442 2026-06 Cumulative Update for Server  712 MB Critical
 
   REBOOT PENDING - Windows Update
+
+  View installed updates by date? [Y/N]: Y
+
+Date       Result    Title
+----       ------    -----
+2026-06-20 Succeeded 2026-06 Cumulative Update for Windows Server (KB5040442)
+2026-06-12 Succeeded Security Intelligence Update ... (KB2267602)
+2026-05-14 Succeeded 2026-05 Cumulative Update for Windows Server (KB5037782)
 ```
+
+> Run without admin and the pending-search line is replaced with
+> "Pending-update check needs admin - press [R] to elevate"; everything else
+> still shows.
 
 **`[M]` Top 10 Memory Usage**:
 
@@ -384,7 +399,7 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 | 1   | Disk Space                  | Read        |
 | 2   | Top Resource Users (live)   | Read        |
 | 3   | Restart / Kill a Service    | Action      |
-| 4   | Pending Windows Updates     | Action      |
+| 4   | Windows Updates (pending + history) | Action |
 | 5   | Full System Health Check    | Read        |
 | M   | Top 10 Memory Usage         | Read        |
 | S   | Top 10 Swap / Page File     | Read        |
