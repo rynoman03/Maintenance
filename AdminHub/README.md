@@ -563,10 +563,19 @@ falls back to cumulative CPU time if live sampling is unavailable.
 
 | File                       | Purpose                                                        |
 |----------------------------|---------------------------------------------------------------|
-| `AdminProfile.ps1`         | The profile itself — banner, menu, and all task functions.     |
-| `Deploy-AdminProfile.ps1`  | Deploys the profile to all users on local or remote servers.   |
-| `Remove-AdminProfile.ps1`  | Rolls back the profile, restoring any backup that was made.    |
-| `Install-UserProfile.ps1`  | Installs/refreshes the profile for the current user only (no admin). |
+| `AdminHub.psm1`            | The module — banner, menu, and all task/health functions.      |
+| `AdminHub.psd1`            | Module manifest (version, exported commands, `adminhub` alias). |
+| `AdminProfile.ps1`         | Thin profile shim — imports the module and shows the menu.      |
+| `Deploy-AdminProfile.ps1`  | Installs the module (PSModulePath) + profile shim, local/remote.|
+| `Remove-AdminProfile.ps1`  | Removes the module + profile, restoring any backup that was made.|
+| `Install-UserProfile.ps1`  | Per-user install of the module + shim (no admin).              |
+
+AdminHub is a **PowerShell module**. Because `Deploy-AdminProfile.ps1` installs
+it under `PSModulePath`, its commands **autoload in any session — including
+`Enter-PSSession`**: just type `adminhub`, `Show-AdminMenu`, or
+`Invoke-SystemHealthCheck` on a remote server and the module loads on demand
+(no profile required in remoting). The profile shim only adds the
+auto-show-the-menu-on-console behavior on top.
 
 ## Monitoring / non-interactive use
 
@@ -636,13 +645,15 @@ Run from an elevated (Administrator) PowerShell prompt.
 .\Deploy-AdminProfile.ps1 -ComputerName SRV01,SRV02,SRV03 -Force
 ```
 
-The profile is written to the **AllUsersAllHosts** path for each installed
-PowerShell edition:
+Deploy installs two things per edition: the **module** under `PSModulePath` (so
+commands autoload everywhere, incl. `Enter-PSSession`) and the **profile shim**
+at the AllUsersAllHosts path (so a console session auto-shows the menu):
 
-- Windows PowerShell 5.x: `%SystemRoot%\System32\WindowsPowerShell\v1.0\profile.ps1`
-  (remote: `\\SERVER\Admin$\System32\...`)
-- PowerShell 7+: `%ProgramFiles%\PowerShell\7\profile.ps1`
-  (remote: `\\SERVER\C$\Program Files\PowerShell\7\...`)
+- Module — `%ProgramFiles%\WindowsPowerShell\Modules\AdminHub` (PS 5.x) and
+  `%ProgramFiles%\PowerShell\Modules\AdminHub` (PS 7); remote via `\\SERVER\C$\...`.
+- Profile shim — `%SystemRoot%\System32\WindowsPowerShell\v1.0\profile.ps1` (PS 5.x,
+  remote `\\SERVER\Admin$\...`) and `%ProgramFiles%\PowerShell\7\profile.ps1`
+  (PS 7, remote `\\SERVER\C$\...`).
 
 An edition that isn't installed on the target is skipped automatically (use
 `-Verbose` to see which).
@@ -665,9 +676,10 @@ profile.
 > execution policy to `RemoteSigned` (above) is fine for testing, but the
 > production-safe option is to sign the scripts so they run under the strict
 > `AllSigned` policy — and so any later tampering invalidates them. Sign **all**
-> `.ps1` files (`AdminProfile.ps1`, `Deploy-AdminProfile.ps1`,
-> `Remove-AdminProfile.ps1`), because `AllSigned` validates every script that
-> runs.
+> the code that runs: the module (`AdminHub.psm1`) and the `.ps1` files
+> (`AdminProfile.ps1`, `Deploy-AdminProfile.ps1`, `Remove-AdminProfile.ps1`,
+> `Install-UserProfile.ps1`), because `AllSigned` validates every script and
+> module that loads. (`Get-ChildItem .\*.ps1, .\*.psm1` covers them.)
 
 You need an **Authenticode code-signing certificate**. Where it must be trusted
 decides which kind to use:
