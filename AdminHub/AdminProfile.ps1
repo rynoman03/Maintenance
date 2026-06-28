@@ -241,14 +241,145 @@ function Get-TopResourceUsers {
         Format-Table -AutoSize
 }
 
-function Restart-ServiceByName {
-    $name = Read-Host "  Enter service name to restart"
-    if ([string]::IsNullOrWhiteSpace($name)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+function Test-ProcessIsCritical {
+    # Returns $true if Windows marks the process as critical (terminating it
+    # bugchecks the OS). Best-effort P/Invoke; returns $false if it can't tell.
+    param([int]$ProcessId)
     try {
-        Restart-Service -Name $name -Force -ErrorAction Stop
-        Write-Host "  '$name' restarted successfully." -ForegroundColor Green
-    } catch {
-        Write-Host "  Error: $_" -ForegroundColor Red
+        if (-not ('AdminHub.ProcCheck' -as [type])) {
+            Add-Type -Namespace 'AdminHub' -Name 'ProcCheck' -ErrorAction Stop -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool IsProcessCritical(System.IntPtr hProcess, out bool Critical);
+'@
+        }
+        $h = (Get-Process -Id $ProcessId -ErrorAction Stop).Handle
+        $crit = $false
+        if ([AdminHub.ProcCheck]::IsProcessCritical($h, [ref]$crit)) { return [bool]$crit }
+    } catch { }
+    return $false
+}
+
+function Restart-ServiceByName {
+    $name = Read-Host "  Enter service name or display name"
+    if ([string]::IsNullOrWhiteSpace($name)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+    # Resolve by EXACT service name first, then exact display name (literal, so a
+    # typed '*' or '[' is not treated as a wildcard).
+    $svc = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $name })
+    if (-not $svc) { $svc = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $name }) }
+    if (-not $svc) { Write-Host "  Service '$name' not found (use the exact service or display name)." -ForegroundColor Red; return }
+    if ($svc.Count -gt 1) {
+        Write-Host "  Multiple services match - be more specific:" -ForegroundColor Yellow
+        $svc | Format-Table Name, DisplayName, Status -AutoSize
+        return
+    }
+    $svc = $svc[0]
+
+    # Kernel-critical services - killing their host process bugchecks the box.
+    $criticalSvcs = @('DcomLaunch','RpcSs','RpcEptMapper','Power','PlugPlay','BrokerInfrastructure',
+                      'LSM','SamSs','Schedule','EventLog','CoreMessagingRegistrar','SystemEventsBroker',
+                      'Dhcp','Dnscache','nsi','gpsvc','ProfSvc')
+
+    $wqlName = $svc.Name.Replace("'", "''")   # escape for WQL filter
+    $cim = Get-CimInstance Win32_Service -Filter "Name='$wqlName'" -ErrorAction SilentlyContinue
+    $procId = if ($cim -and $cim.ProcessId) { [int]($cim.ProcessId | Select-Object -First 1) } else { 0 }
+
+    Write-Header "Service: $($svc.DisplayName)"
+    Write-Host ("  Name      : {0}" -f $svc.Name)
+    Write-Host ("  Status    : {0}" -f $svc.Status)
+    if ($cim) { Write-Host ("  StartType : {0}" -f $cim.StartMode) }
+
+    # Running dependents - a restart (-Force) also stops/restarts these.
+    $deps = @($svc.DependentServices | Where-Object { $_.Status -eq 'Running' })
+    if ($deps.Count -gt 0) {
+        Write-Host ("  Dependents: {0} running - restart also bounces: {1}" -f `
+            $deps.Count, (($deps | Select-Object -First 8 -ExpandProperty Name) -join ', ')) -ForegroundColor Yellow
+    }
+
+    $siblings = @()
+    if ($procId -gt 0) {
+        $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        Write-Host ("  PID       : {0} ({1})" -f $procId, $(if ($p) { $p.ProcessName } else { 'unknown' }))
+        $siblings = @(Get-CimInstance Win32_Service -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne $svc.Name })
+        if ($siblings.Count -gt 0) {
+            Write-Host ("  SHARED PID: also hosts {0} other service(s): {1}" -f `
+                $siblings.Count, (($siblings | Select-Object -First 8 -ExpandProperty Name) -join ', ')) -ForegroundColor Yellow
+            Write-Host "  Killing this process stops ALL of them." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  PID       : (service not running)"
+    }
+
+    if (-not (Test-IsAdmin)) {
+        Write-Host "  Note: restart/kill need admin - use [R] at the menu to elevate." -ForegroundColor DarkGray
+    }
+
+    Write-Host ""
+    Write-Host "  [R] Restart    [K] Kill process (force)    [C] Cancel" -ForegroundColor DarkGray
+    $action = Read-Host "  Choose"
+
+    switch -Regex ($action) {
+        '^[Rr]' {
+            try {
+                Restart-Service -Name $svc.Name -Force -ErrorAction Stop
+                Write-Host "  '$($svc.Name)' restarted." -ForegroundColor Green
+            } catch { Write-Host "  Restart failed: $($_.Exception.Message)" -ForegroundColor Red }
+        }
+        '^[Kk]' {
+            if ($procId -le 0) { Write-Host "  Service is not running - nothing to kill." -ForegroundColor Yellow; return }
+
+            # Guard 1: refuse if the target or any co-hosted service is kernel-critical.
+            $hosted = @($svc.Name) + @($siblings | Select-Object -ExpandProperty Name)
+            $hit = @($hosted | Where-Object { $criticalSvcs -contains $_ })
+            if ($hit.Count -gt 0) {
+                Write-Host ("  Refusing to kill PID {0}: hosts kernel-critical service(s) [{1}] - killing it would crash the OS." -f `
+                    $procId, ($hit -join ', ')) -ForegroundColor Red
+                Write-Host "  Use [R] Restart instead." -ForegroundColor DarkGray
+                return
+            }
+            # Guard 2: refuse if Windows itself flags the process as critical.
+            if (Test-ProcessIsCritical -ProcessId $procId) {
+                Write-Host "  Refusing to kill PID ${procId}: Windows marks it CRITICAL (terminating it bugchecks the OS)." -ForegroundColor Red
+                return
+            }
+            # Guard 3: re-validate the PID still belongs to this service (PID-reuse race).
+            $cimNow = Get-CimInstance Win32_Service -Filter "Name='$wqlName'" -ErrorAction SilentlyContinue
+            $pidNow = if ($cimNow -and $cimNow.ProcessId) { [int]($cimNow.ProcessId | Select-Object -First 1) } else { 0 }
+            $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+            if (-not $proc -or $pidNow -ne $procId) {
+                Write-Host "  PID changed since it was read (service stopped/restarted). Aborting - re-run the option." -ForegroundColor Yellow
+                return
+            }
+
+            $warn = if ($siblings.Count -gt 0) { " and $($siblings.Count) co-hosted service(s)" } else { "" }
+            $confirm = Read-Host "  Force-kill PID $procId ($($proc.ProcessName))$warn? Abrupt - unsaved state is lost. [Y/N]"
+            if ($confirm -notmatch '^[Yy]') { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+            try {
+                Stop-Process -Id $procId -Force -ErrorAction Stop
+                Write-Host "  Killed PID $procId." -ForegroundColor Green
+            } catch { Write-Host "  Kill failed: $($_.Exception.Message)" -ForegroundColor Red; return }
+
+            $start = Read-Host "  Start the killed service(s) again now? [Y/N]"
+            if ($start -match '^[Yy]') {
+                foreach ($sn in $hosted) {
+                    $so = Get-Service -Name $sn -ErrorAction SilentlyContinue
+                    if ($so) { try { $so.WaitForStatus('Stopped', '00:00:10') } catch { } }
+                    try { Start-Service -Name $sn -ErrorAction Stop; Write-Host "  Started $sn." -ForegroundColor Green }
+                    catch { Write-Host "  Start $sn failed: $($_.Exception.Message)" -ForegroundColor Red }
+                }
+            }
+        }
+        default { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+    }
+
+    Start-Sleep -Milliseconds 600
+    $after = Get-Service -Name $svc.Name -ErrorAction SilentlyContinue
+    $cim2 = Get-CimInstance Win32_Service -Filter "Name='$wqlName'" -ErrorAction SilentlyContinue
+    if ($after) {
+        $newPid = if ($cim2 -and $cim2.ProcessId) { $cim2.ProcessId } else { '-' }
+        Write-Host ("  Now: {0}  (PID {1})" -f $after.Status, $newPid) -ForegroundColor Cyan
     }
 }
 
@@ -1136,7 +1267,7 @@ function Show-AdminMenu {
         Write-Host "  System & Diagnostics" -ForegroundColor DarkCyan
         Write-Host "  [1]  Disk Space"              -ForegroundColor Green
         Write-Host "  [2]  Top Resource Users (live)"-ForegroundColor Green
-        Write-Host "  [3]  Restart a Service"       -ForegroundColor Yellow
+        Write-Host "  [3]  Restart / Kill a Service"-ForegroundColor Yellow
         Write-Host "  [4]  Pending Windows Updates" -ForegroundColor Yellow
         Write-Host "  [5]  Full System Health Check"-ForegroundColor Cyan
         Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
