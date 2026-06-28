@@ -28,19 +28,19 @@ The menu shown at startup:
   [3]  Manage a Service (restart / kill)
   [4]  Windows Updates (pending + history)
   [5]  Full System Health Check
-  [T]  Live Process Monitor (top)
   [A]  Active User Sessions
-  [L]  Tail a Log File
-  [V]  Search Event Logs
   [K]  Kill a Process (app / non-service)
+  [L]  Tail a Log File
+  [T]  Live Process Monitor (top)
+  [V]  Search Event Logs
 
   Networking
   [N]  Adapters, teaming, DNS, gateway
   [P]  Listening Ports / Connections
 
   Maintenance
-  [C]  Disk Cleanup (C: drive)
   [B]  Reboot / Restart History
+  [C]  Disk Cleanup (C: drive)
   [E]  Export Health Report
 
   [R]  Relaunch as Administrator
@@ -496,15 +496,15 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 | 3   | Manage a Service (restart / kill) | Action  |
 | 4   | Windows Updates (pending + history) | Action |
 | 5   | Full System Health Check    | Read        |
-| T   | Live Process Monitor (top)  | Read        |
 | A   | Active User Sessions        | Read        |
-| L   | Tail a Log File             | Read        |
-| V   | Search Event Logs           | Read        |
 | K   | Kill a Process (app / non-service) | Action |
+| L   | Tail a Log File             | Read        |
+| T   | Live Process Monitor (top)  | Read        |
+| V   | Search Event Logs           | Read        |
 | N   | Network: adapters, teaming, DNS, gateway | Read |
 | P   | Listening Ports / Connections | Read       |
-| C   | Disk Cleanup (C: drive)     | Destructive |
 | B   | Reboot / Restart History    | Destructive |
+| C   | Disk Cleanup (C: drive)     | Destructive |
 | E   | Export Health Report        | Action      |
 | R   | Relaunch as Administrator   | Elevation   |
 | 0   | Exit to Shell               | —           |

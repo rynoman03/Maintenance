@@ -2003,19 +2003,19 @@ function Show-AdminMenu {
         Write-Host "  [3]  Manage a Service (restart / kill)" -ForegroundColor Yellow
         Write-Host "  [4]  Windows Updates (pending + history)" -ForegroundColor Yellow
         Write-Host "  [5]  Full System Health Check"-ForegroundColor Cyan
-        Write-Host "  [T]  Live Process Monitor (top)" -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
-        Write-Host "  [L]  Tail a Log File"         -ForegroundColor Green
-        Write-Host "  [V]  Search Event Logs"       -ForegroundColor Green
         Write-Host "  [K]  Kill a Process (app / non-service)" -ForegroundColor Yellow
+        Write-Host "  [L]  Tail a Log File"         -ForegroundColor Green
+        Write-Host "  [T]  Live Process Monitor (top)" -ForegroundColor Green
+        Write-Host "  [V]  Search Event Logs"       -ForegroundColor Green
         Write-Host ""
         Write-Host "  Networking" -ForegroundColor DarkCyan
         Write-Host "  [N]  Adapters, teaming, DNS, gateway" -ForegroundColor Green
         Write-Host "  [P]  Listening Ports / Connections"   -ForegroundColor Green
         Write-Host ""
         Write-Host "  Maintenance" -ForegroundColor DarkCyan
-        Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
         Write-Host "  [B]  Reboot / Restart History"-ForegroundColor Magenta
+        Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
         Write-Host "  [E]  Export Health Report"    -ForegroundColor DarkCyan
         Write-Host ""
         if (-not $admin) {
@@ -2052,15 +2052,15 @@ function Show-AdminMenu {
             '3' { Restart-ServiceByName }
             '4' { Get-PendingUpdates }
             '5' { Invoke-SystemHealthCheck }
-            'T' { Show-ProcessMonitor }
             'A' { Get-ActiveSessions }
-            'L' { Show-LogTail }
-            'V' { Show-EventLogSearch }
             'K' { Stop-ProcessInteractive }
+            'L' { Show-LogTail }
+            'T' { Show-ProcessMonitor }
+            'V' { Show-EventLogSearch }
             'N' { Show-NetworkStatus }
             'P' { Show-PortsConnections }
-            'C' { Invoke-DiskCleanup -Drive 'C' }
             'B' { Restart-ComputerInteractive }
+            'C' { Invoke-DiskCleanup -Drive 'C' }
             'E' { Export-HealthReport }
             'R' { Invoke-RelaunchAsAdmin }
             '0' {
