@@ -601,6 +601,81 @@ function Show-CpuMemoryFaults {
     }
 }
 
+function Get-ListeningPorts {
+    # Distinct TCP + UDP listening endpoints with the owning process. Returns
+    # $null if the Net*Connection cmdlets are unavailable (very old OS).
+    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) { return $null }
+    $procs = @{}
+    Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $procs[[int]$_.Id] = $_.ProcessName }
+    $tcp = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
+        [PSCustomObject]@{ Proto = 'TCP'; LocalAddress = $_.LocalAddress; Port = [int]$_.LocalPort
+            ProcessId = [int]$_.OwningProcess; Process = $procs[[int]$_.OwningProcess] }
+    })
+    $udp = @()
+    if (Get-Command Get-NetUDPEndpoint -ErrorAction SilentlyContinue) {
+        $udp = @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object {
+            [PSCustomObject]@{ Proto = 'UDP'; LocalAddress = $_.LocalAddress; Port = [int]$_.LocalPort
+                ProcessId = [int]$_.OwningProcess; Process = $procs[[int]$_.OwningProcess] }
+        })
+    }
+    @($tcp + $udp) | Sort-Object Proto, Port, Process -Unique
+}
+
+function Get-ConnectionSummary {
+    # TCP connection counts grouped by state (Established, TimeWait, ...).
+    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) { return $null }
+    $all = @(Get-NetTCPConnection -ErrorAction SilentlyContinue)
+    $byState = @($all | Group-Object State | Sort-Object Count -Descending |
+        ForEach-Object { [PSCustomObject]@{ State = $_.Name; Count = $_.Count } })
+    [PSCustomObject]@{ Total = $all.Count; ByState = $byState
+        Established = @($all | Where-Object { $_.State -eq 'Established' }).Count }
+}
+
+function Get-ActiveConnections {
+    param([int]$Top = 15)
+    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) { return @() }
+    $procs = @{}
+    Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $procs[[int]$_.Id] = $_.ProcessName }
+    @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+        Sort-Object RemoteAddress | Select-Object -First $Top | ForEach-Object {
+            [PSCustomObject]@{
+                Local   = "$($_.LocalAddress):$($_.LocalPort)"
+                Remote  = "$($_.RemoteAddress):$($_.RemotePort)"
+                Process = $procs[[int]$_.OwningProcess]
+            }
+        })
+}
+
+function Show-PortsConnections {
+    Write-Header "Listening Ports"
+    $listen = Get-ListeningPorts
+    if ($null -eq $listen) {
+        Write-Host "  Get-NetTCPConnection not available on this system." -ForegroundColor Yellow
+        return
+    }
+    if (-not $listen) {
+        Write-Host "  No listening ports found." -ForegroundColor DarkGray
+    } else {
+        $listen | Format-Table Proto, LocalAddress, Port, ProcessId, Process -AutoSize
+        $tcpN = @($listen | Where-Object { $_.Proto -eq 'TCP' }).Count
+        $udpN = @($listen | Where-Object { $_.Proto -eq 'UDP' }).Count
+        Write-Host "  $tcpN TCP + $udpN UDP listening." -ForegroundColor DarkGray
+    }
+
+    Write-Header "Active TCP Connections"
+    $sum = Get-ConnectionSummary
+    if ($sum) {
+        foreach ($s in $sum.ByState) { Write-Host ("  {0,-12} {1}" -f $s.State, $s.Count) }
+        $est = Get-ActiveConnections -Top 15
+        if ($est) {
+            Write-Host "`n  Established (up to 15):" -ForegroundColor Cyan
+            $est | Format-Table Local, Remote, Process -AutoSize
+        }
+    } else {
+        Write-Host "  No connection data." -ForegroundColor DarkGray
+    }
+}
+
 function Get-HealthSummary {
     # Returns an ordered list of health checks, each with Status (OK/WARN/FAIL)
     # and a short Detail string. Shared by the on-screen check and the report.
@@ -744,6 +819,17 @@ function Get-HealthSummary {
         $checks += [PSCustomObject]@{ Name = 'Time sync'; Status = $time.Status; Detail = $time.Detail }
     }
 
+    # --- Listening ports / connections (informational) ---
+    $lp = Get-ListeningPorts
+    if ($null -ne $lp) {
+        $tcpN = @($lp | Where-Object { $_.Proto -eq 'TCP' }).Count
+        $udpN = @($lp | Where-Object { $_.Proto -eq 'UDP' }).Count
+        $cs = Get-ConnectionSummary
+        $est = if ($cs) { $cs.Established } else { 0 }
+        $checks += [PSCustomObject]@{ Name = 'Listening ports'; Status = 'OK'
+            Detail = "$tcpN TCP, $udpN UDP listening; $est established" }
+    }
+
     # --- Uptime (informational) ---
     if ($os) {
         $uptime = (Get-Date) - $os.LastBootUpTime
@@ -835,6 +921,16 @@ function Export-HealthReport {
         if ($null -eq $dn.Resolved) { "  Resolution test: skipped (not domain-joined)" }
         elseif ($dn.Resolved) { "  Resolved $($dn.Target) -> $($dn.Addresses)" }
         else { "  FAILED to resolve $($dn.Target): $($dn.Error)" }
+
+        "`n[LISTENING PORTS]"
+        $lpr = Get-ListeningPorts
+        if ($null -eq $lpr) { "  (Get-NetTCPConnection unavailable)`n" }
+        elseif (-not $lpr) { "  (none)`n" }
+        else { $lpr | Format-Table Proto, LocalAddress, Port, ProcessId, Process -AutoSize | Out-String }
+
+        "`n[TCP CONNECTIONS BY STATE]"
+        $csr = Get-ConnectionSummary
+        if ($csr) { $csr.ByState | Format-Table State, Count -AutoSize | Out-String } else { "  (no data)`n" }
 
         "`n[HARDWARE - temperature / power]"
         $hwr = Get-HardwareHealth
@@ -1007,6 +1103,7 @@ function Show-AdminMenu {
         Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
         Write-Host "  [N]  Network (adapters, teaming, DNS)" -ForegroundColor Green
+        Write-Host "  [P]  Listening Ports / Connections" -ForegroundColor Green
         Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
         Write-Host "  [E]  Export Health Report"    -ForegroundColor DarkCyan
         if (-not $admin) {
@@ -1042,6 +1139,7 @@ function Show-AdminMenu {
             'S' { Get-SwapUsage }
             'A' { Get-ActiveSessions }
             'N' { Show-NetworkStatus }
+            'P' { Show-PortsConnections }
             'C' { Invoke-DiskCleanup -Drive 'C' }
             'E' { Export-HealthReport }
             'R' { Invoke-RelaunchAsAdmin }
@@ -1050,7 +1148,7 @@ function Show-AdminMenu {
                 return
             }
             default {
-                Write-Host "  Invalid option. Please choose 0-5, A, C, E, M, N, R, or S." -ForegroundColor Red
+                Write-Host "  Invalid option. Please choose 0-5, A, C, E, M, N, P, R, or S." -ForegroundColor Red
                 $ranTask = $false
             }
         }

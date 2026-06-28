@@ -77,6 +77,7 @@ screen before the full report is written to disk:
 | S   | Top 10 Swap / Page File     | Read        |
 | A   | Active User Sessions        | Read        |
 | N   | Network (adapters, teaming, DNS) | Read   |
+| P   | Listening Ports / Connections | Read       |
 | C   | Disk Cleanup (C: drive)     | Destructive |
 | E   | Export Health Report        | Action      |
 | R   | Relaunch as Administrator   | Elevation   |
@@ -140,6 +141,8 @@ item, plus an overall status:
 - **Time sync** — domain-joined machines only: measures clock offset from the
   domain via `w32tm`. WARN at ≥ 2s drift, FAIL at ≥ 30s (well before Kerberos'
   5-minute skew limit).
+- **Listening ports** — informational count of TCP/UDP listeners and established
+  TCP connections (full per-port detail with owning process is under `[P]`).
 - **Uptime** — time since last boot
 
 In addition to the summary verdict, `[5]` prints the **most recent System-log
@@ -154,10 +157,18 @@ not domain-joined, a VM) report a short "skipped"/"not available" note instead
 of failing.
 
 `[E]` writes the summary plus supporting detail tables (disk, physical-disk
-health, network adapters, default gateway, NIC teaming, DNS, hardware sensors,
-CPU/memory faults, domain time sync, stopped services, recent errors, top
-memory, active sessions) to a timestamped file at
-`C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
+health, network adapters, default gateway, NIC teaming, DNS, listening ports,
+TCP connections by state, hardware sensors, CPU/memory faults, domain time sync,
+stopped services, recent errors, top memory, active sessions) to a timestamped
+file at `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
+
+### Listening ports & connections `[P]`
+
+Lists every TCP/UDP **listening** endpoint with its owning process (so you can
+see what the server exposes and which service owns each port), followed by a
+breakdown of TCP connections by state (Established, TimeWait, etc.) and the
+current established connections (local/remote address + process, up to 15).
+Uses `Get-NetTCPConnection` / `Get-NetUDPEndpoint`.
 
 ### Top Resource Users `[2]`
 
