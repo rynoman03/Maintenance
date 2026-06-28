@@ -307,6 +307,39 @@ function Get-ActiveSessions {
     } | Format-Table -AutoSize
 }
 
+function Get-RecentSystemErrors {
+    # Critical (1) + Error (2) events from the System log in the last $Hours hours.
+    # Uses Get-WinEvent so it works in both Windows PowerShell 5.1 and PowerShell 7
+    # (Get-EventLog does not exist in 7). Get-WinEvent throws when nothing matches,
+    # so a zero-match result is caught and returned as an empty array.
+    param([int]$Hours = 24, [int]$Max = 50)
+    $since = (Get-Date).AddHours(-$Hours)
+    try {
+        Get-WinEvent -FilterHashtable @{ LogName = 'System'; Level = 1, 2; StartTime = $since } `
+            -MaxEvents $Max -ErrorAction Stop
+    } catch {
+        @()
+    }
+}
+
+function Show-RecentSystemErrors {
+    param([int]$Hours = 24, [int]$Max = 20)
+    Write-Header "Recent System Errors (last ${Hours}h)"
+    $events = Get-RecentSystemErrors -Hours $Hours -Max $Max
+    if (-not $events) {
+        Write-Host "  No error or critical events in the last $Hours hours." -ForegroundColor Green
+        return
+    }
+    $events | Select-Object `
+        @{N='Time';    E={ $_.TimeCreated.ToString('MM-dd HH:mm') }},
+        @{N='Level';   E={ $_.LevelDisplayName }},
+        @{N='Source';  E={ $_.ProviderName }},
+        @{N='ID';      E={ $_.Id }},
+        @{N='Message'; E={ ($_.Message -split "`r?`n")[0] }} |
+        Format-Table -AutoSize -Wrap
+    Write-Host "  Showing up to $Max most recent (Critical + Error)." -ForegroundColor DarkGray
+}
+
 function Get-HealthSummary {
     # Returns an ordered list of health checks, each with Status (OK/WARN/FAIL)
     # and a short Detail string. Shared by the on-screen check and the report.
@@ -391,11 +424,10 @@ function Get-HealthSummary {
     }
 
     # --- Recent error events (System log, last 24h) ---
-    $since = (Get-Date).AddHours(-24)
-    $errCount = (Get-EventLog -LogName System -EntryType Error -After $since -ErrorAction SilentlyContinue |
-        Measure-Object).Count
+    $errCount = (Get-RecentSystemErrors -Hours 24 -Max 100 | Measure-Object).Count
+    $detail = if ($errCount -ge 100) { '100+ error/critical event(s)' } else { "$errCount error/critical event(s)" }
     $st = if ($errCount -gt 0) { 'WARN' } else { 'OK' }
-    $checks += [PSCustomObject]@{ Name = 'System errors (24h)'; Status = $st; Detail = "$errCount error event(s)" }
+    $checks += [PSCustomObject]@{ Name = 'System errors (24h)'; Status = $st; Detail = $detail }
 
     # --- Uptime (informational) ---
     if ($os) {
@@ -467,8 +499,10 @@ function Export-HealthReport {
         if ($svc) { $svc | Format-Table -AutoSize | Out-String } else { "  (none)`n" }
 
         "`n[RECENT SYSTEM ERRORS - last 24h]"
-        $ev = Get-EventLog -LogName System -EntryType Error -After ((Get-Date).AddHours(-24)) -Newest 20 -ErrorAction SilentlyContinue |
-            Select-Object TimeGenerated, Source, EventID, Message
+        $ev = Get-RecentSystemErrors -Hours 24 -Max 20 |
+            Select-Object @{N='Time';E={$_.TimeCreated}}, @{N='Level';E={$_.LevelDisplayName}},
+                @{N='Source';E={$_.ProviderName}}, @{N='ID';E={$_.Id}},
+                @{N='Message';E={ ($_.Message -split "`r?`n")[0] }}
         if ($ev) { $ev | Format-Table -AutoSize -Wrap | Out-String } else { "  (none)`n" }
 
         "`n[TOP 10 PROCESSES - MEMORY]"
@@ -499,6 +533,7 @@ function Invoke-SystemHealthCheck {
     Write-HealthSummary (Get-HealthSummary)
     Get-DiskSpace
     Get-TopResourceUsers -Seconds 3
+    Show-RecentSystemErrors
 }
 
 function Invoke-DiskCleanup {

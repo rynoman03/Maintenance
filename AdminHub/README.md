@@ -112,8 +112,15 @@ item, plus an overall status:
 - **Auto services** — automatic-start services that are not running
 - **Memory** — physical RAM in use (WARN ≥ 85%, FAIL ≥ 95%)
 - **Pagefile** — page file in use (WARN ≥ 80%, FAIL ≥ 95%)
-- **System errors (24h)** — error events in the System log in the last 24 hours
+- **System errors (24h)** — Error + Critical events in the System log in the
+  last 24 hours (read via `Get-WinEvent`, so it works in both Windows PowerShell
+  5.1 and PowerShell 7)
 - **Uptime** — time since last boot
+
+In addition to the summary verdict, `[5]` prints the **most recent System-log
+errors** (up to 20 Critical/Error events from the last 24 hours: time, level,
+source, event ID, and first line of the message) so you can see the actual
+events on screen, not just the count.
 
 `[E]` writes the summary plus supporting detail tables (disk, physical-disk
 health, stopped services, recent errors, top memory, active sessions) to a
