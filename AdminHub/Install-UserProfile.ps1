@@ -30,39 +30,47 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $src = Join-Path $PSScriptRoot 'AdminProfile.ps1'
-if (-not (Test-Path $src)) {
-    Write-Error "AdminProfile.ps1 not found next to this script ($src)."
-    exit 1
+$moduleFiles = @('AdminHub.psm1', 'AdminHub.psd1')
+foreach ($req in @($src) + ($moduleFiles | ForEach-Object { Join-Path $PSScriptRoot $_ })) {
+    if (-not (Test-Path $req)) { Write-Error "Required source file not found: $req"; exit 1 }
 }
 
-# Per-user AllHosts profile paths, derived from the user's Documents folder so
-# OneDrive / folder redirection is handled correctly.
+# Per-user locations, derived from the user's Documents folder (OneDrive / folder
+# redirection aware). The module goes under per-user Modules so its commands
+# autoload; the profile shim imports it.
 $docs = [Environment]::GetFolderPath('MyDocuments')
-$targets = @(Join-Path $docs 'WindowsPowerShell\profile.ps1')   # Windows PowerShell 5.x
+$editions = @(
+    @{ Profile = Join-Path $docs 'WindowsPowerShell\profile.ps1'; Module = Join-Path $docs 'WindowsPowerShell\Modules\AdminHub' }
+)
 if ($AllEditions) {
-    $targets += (Join-Path $docs 'PowerShell\profile.ps1')      # PowerShell 7+
+    $editions += @{ Profile = Join-Path $docs 'PowerShell\profile.ps1'; Module = Join-Path $docs 'PowerShell\Modules\AdminHub' }
 }
 
-foreach ($dest in $targets) {
-    $dir = Split-Path $dest
-    if (-not (Test-Path $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+foreach ($e in $editions) {
+    # 1. Install the module
+    if (-not (Test-Path $e.Module)) { New-Item -ItemType Directory -Path $e.Module -Force | Out-Null }
+    foreach ($f in $moduleFiles) {
+        $mdest = Join-Path $e.Module $f
+        Copy-Item (Join-Path $PSScriptRoot $f) $mdest -Force
+        Unblock-File $mdest -ErrorAction SilentlyContinue
     }
+    Write-Host "  Module  -> $($e.Module)" -ForegroundColor Green
 
-    # Back up an existing profile only if it is NOT already an AdminHub profile,
-    # so repeated refreshes don't pile up backups of our own file.
+    # 2. Install the profile shim (back up a pre-existing non-AdminHub profile once)
+    $dest = $e.Profile
+    $dir = Split-Path $dest
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     if (Test-Path $dest) {
         $existing = Get-Content $dest -Raw -ErrorAction SilentlyContinue
-        if ($existing -notmatch 'Show-AdminMenu') {
+        if ($existing -notmatch 'AdminHub') {
             $bak = "$dest.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
             Copy-Item $dest $bak
             Write-Host "  Backed up existing profile -> $bak" -ForegroundColor DarkYellow
         }
     }
-
     Copy-Item $src $dest -Force
-    Unblock-File $dest -ErrorAction SilentlyContinue   # strip Mark of the Web if any
-    Write-Host "  Installed -> $dest" -ForegroundColor Green
+    Unblock-File $dest -ErrorAction SilentlyContinue
+    Write-Host "  Profile -> $dest" -ForegroundColor Green
 }
 
 Write-Host "`nDone. Open a new PowerShell window to load the AdminHub menu." -ForegroundColor Cyan

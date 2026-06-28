@@ -39,12 +39,29 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Destination: the AllUsersAllHosts profile.ps1 for each PowerShell edition. The
-# two editions live under DIFFERENT roots, so they cannot share one base path:
-#   Windows PowerShell 5.x : $env:SystemRoot\System32\WindowsPowerShell\v1.0\profile.ps1
-#   PowerShell 7+          : $env:ProgramFiles\PowerShell\7\profile.ps1
-# Remote targets reach them via admin shares: Admin$ maps to %SystemRoot%, and
-# C$ maps to the system drive (used to reach Program Files for PS7).
+# AdminHub ships as a MODULE (AdminHub.psm1 + AdminHub.psd1) installed under
+# PSModulePath, plus a tiny profile.ps1 shim that imports it. Installing the module
+# machine-wide makes its commands AUTOLOAD in any session - including Enter-PSSession.
+$ModuleSourceDir = $PSScriptRoot
+$ModuleFiles     = @('AdminHub.psm1', 'AdminHub.psd1')
+
+# Module folders per edition (PS 5.x: WindowsPowerShell\Modules; PS 7: PowerShell\Modules).
+# Remote via C$. Each is installed only if that edition's tree is present.
+function Get-ModuleTargets {
+    param([string]$Computer)
+    if ($Computer -eq $env:COMPUTERNAME -or $Computer -eq 'localhost') {
+        return @(
+            (Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules\AdminHub'),
+            (Join-Path $env:ProgramFiles 'PowerShell\Modules\AdminHub')
+        )
+    }
+    return @(
+        "\\$Computer\C$\Program Files\WindowsPowerShell\Modules\AdminHub",
+        "\\$Computer\C$\Program Files\PowerShell\Modules\AdminHub"
+    )
+}
+
+# Profile shim (profile.ps1) targets, per edition. Admin$ -> %SystemRoot%, C$ -> system drive.
 function Get-ProfileTargets {
     param([string]$Computer)
     if ($Computer -eq $env:COMPUTERNAME -or $Computer -eq 'localhost') {
@@ -57,6 +74,21 @@ function Get-ProfileTargets {
         "\\$Computer\Admin$\System32\WindowsPowerShell\v1.0\profile.ps1",
         "\\$Computer\C$\Program Files\PowerShell\7\profile.ps1"
     )
+}
+
+function Install-AdminHubModule {
+    param([string]$ModuleDir)
+    # Only install for an edition that is present (its parent ...\<edition> root exists).
+    $editionRoot = Split-Path (Split-Path $ModuleDir)   # ...\WindowsPowerShell or ...\PowerShell
+    if (-not (Test-Path $editionRoot)) {
+        Write-Verbose "Skipping module at $ModuleDir (PowerShell edition not present)"
+        return
+    }
+    if (-not (Test-Path $ModuleDir)) { New-Item -ItemType Directory -Path $ModuleDir -Force | Out-Null }
+    foreach ($f in $ModuleFiles) {
+        Copy-Item (Join-Path $ModuleSourceDir $f) (Join-Path $ModuleDir $f) -Force
+    }
+    Write-Host "  Module  -> $ModuleDir" -ForegroundColor Green
 }
 
 function Deploy-ToPath {
@@ -84,13 +116,12 @@ function Deploy-ToPath {
     }
 
     Copy-Item $ProfileSourcePath $Dest -Force
-    Write-Host "  Deployed -> $Dest" -ForegroundColor Green
+    Write-Host "  Profile -> $Dest" -ForegroundColor Green
 }
 
-# -- Validate source ------------------------------------------------------------
-if (-not (Test-Path $ProfileSourcePath)) {
-    Write-Error "Source profile not found: $ProfileSourcePath"
-    exit 1
+# -- Validate sources -----------------------------------------------------------
+foreach ($req in @($ProfileSourcePath) + ($ModuleFiles | ForEach-Object { Join-Path $ModuleSourceDir $_ })) {
+    if (-not (Test-Path $req)) { Write-Error "Required source file not found: $req"; exit 1 }
 }
 
 foreach ($computer in $ComputerName) {
@@ -102,9 +133,8 @@ foreach ($computer in $ComputerName) {
         continue
     }
 
-    foreach ($dest in (Get-ProfileTargets -Computer $computer)) {
-        Deploy-ToPath -Dest $dest
-    }
+    foreach ($m in (Get-ModuleTargets -Computer $computer)) { Install-AdminHubModule -ModuleDir $m }
+    foreach ($dest in (Get-ProfileTargets -Computer $computer)) { Deploy-ToPath -Dest $dest }
 }
 
-Write-Host "`nDeployment complete." -ForegroundColor Cyan
+Write-Host "`nModule + profile deployment complete." -ForegroundColor Cyan

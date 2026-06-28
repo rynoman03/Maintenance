@@ -31,6 +31,28 @@ function Get-ProfileTargets {
     )
 }
 
+function Get-ModuleTargets {
+    param([string]$Computer)
+    if ($Computer -eq $env:COMPUTERNAME -or $Computer -eq 'localhost') {
+        return @(
+            (Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules\AdminHub'),
+            (Join-Path $env:ProgramFiles 'PowerShell\Modules\AdminHub')
+        )
+    }
+    return @(
+        "\\$Computer\C$\Program Files\WindowsPowerShell\Modules\AdminHub",
+        "\\$Computer\C$\Program Files\PowerShell\Modules\AdminHub"
+    )
+}
+
+function Remove-AdminHubModule {
+    param([string]$ModuleDir)
+    if (Test-Path $ModuleDir) {
+        Remove-Item $ModuleDir -Recurse -Force
+        Write-Host "  Removed module $ModuleDir" -ForegroundColor Yellow
+    }
+}
+
 function Remove-FromPath {
     param([string]$Dest)
     if (-not (Test-Path $Dest)) { Write-Verbose "Not found, skipping: $Dest"; return }
@@ -62,6 +84,9 @@ foreach ($computer in $ComputerName) {
 
     foreach ($dest in (Get-ProfileTargets -Computer $computer)) {
         Remove-FromPath -Dest $dest
+    }
+    foreach ($m in (Get-ModuleTargets -Computer $computer)) {
+        Remove-AdminHubModule -ModuleDir $m
     }
 }
 
