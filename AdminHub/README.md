@@ -76,6 +76,7 @@ screen before the full report is written to disk:
 | M   | Top 10 Memory Usage         | Read        |
 | S   | Top 10 Swap / Page File     | Read        |
 | A   | Active User Sessions        | Read        |
+| N   | Network Adapters            | Read        |
 | C   | Disk Cleanup (C: drive)     | Destructive |
 | E   | Export Health Report        | Action      |
 | R   | Relaunch as Administrator   | Elevation   |
@@ -115,6 +116,10 @@ item, plus an overall status:
 - **System errors (24h)** — Error + Critical events in the System log in the
   last 24 hours (read via `Get-WinEvent`, so it works in both Windows PowerShell
   5.1 and PowerShell 7)
+- **Network adapters** — for each connected (Up) adapter, the cumulative packet
+  discard/error counters. WARN if any adapter shows packet **errors**; discard
+  counts are reported for context (counters are totals since boot, so a few
+  discards are usually benign). Requires the NetAdapter module (Server 2012+).
 - **Uptime** — time since last boot
 
 In addition to the summary verdict, `[5]` prints the **most recent System-log
@@ -122,9 +127,13 @@ errors** (up to 20 Critical/Error events from the last 24 hours: time, level,
 source, event ID, and first line of the message) so you can see the actual
 events on screen, not just the count.
 
+`[5]` also lists each connected adapter's link speed and discard/error counts
+(also available on its own via `[N]`).
+
 `[E]` writes the summary plus supporting detail tables (disk, physical-disk
-health, stopped services, recent errors, top memory, active sessions) to a
-timestamped file at `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
+health, stopped services, network adapters, recent errors, top memory, active
+sessions) to a timestamped file at
+`C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
 
 ### Top Resource Users `[2]`
 

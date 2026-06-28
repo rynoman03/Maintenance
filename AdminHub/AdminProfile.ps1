@@ -340,6 +340,46 @@ function Show-RecentSystemErrors {
     Write-Host "  Showing up to $Max most recent (Critical + Error)." -ForegroundColor DarkGray
 }
 
+function Get-NetworkAdapterHealth {
+    # Connected (Up) adapters with link speed and CUMULATIVE discard/error counters
+    # (totals since the adapter came up, not a rate). Requires the NetAdapter module
+    # (Windows 8 / Server 2012+); returns $null if it is unavailable.
+    if (-not (Get-Command Get-NetAdapter -ErrorAction SilentlyContinue)) { return $null }
+    $up = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' }
+    foreach ($a in $up) {
+        $s = Get-NetAdapterStatistics -Name $a.Name -ErrorAction SilentlyContinue
+        [PSCustomObject]@{
+            Name        = $a.Name
+            LinkSpeed   = $a.LinkSpeed
+            RxDiscarded = if ($s) { [int64]$s.ReceivedDiscardedPackets } else { 0 }
+            RxErrors    = if ($s) { [int64]$s.ReceivedPacketErrors }     else { 0 }
+            TxDiscarded = if ($s) { [int64]$s.OutboundDiscardedPackets } else { 0 }
+            TxErrors    = if ($s) { [int64]$s.OutboundPacketErrors }     else { 0 }
+        }
+    }
+}
+
+function Show-NetworkStatus {
+    Write-Header "Network Adapters"
+    $nics = Get-NetworkAdapterHealth
+    if ($null -eq $nics) {
+        Write-Host "  Get-NetAdapter is not available on this system." -ForegroundColor Yellow
+        return
+    }
+    if (-not $nics) {
+        Write-Host "  No connected (Up) network adapters." -ForegroundColor Yellow
+        return
+    }
+    $nics | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize
+    $bad = $nics | Where-Object { ($_.RxDiscarded + $_.RxErrors + $_.TxDiscarded + $_.TxErrors) -gt 0 }
+    if ($bad) {
+        Write-Host ("  Discards/errors on: " + (($bad | ForEach-Object { $_.Name }) -join ', ')) -ForegroundColor Yellow
+        Write-Host "  (Counters are cumulative since boot; a few discards are usually benign.)" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  No discards or errors on any connected adapter." -ForegroundColor Green
+    }
+}
+
 function Get-HealthSummary {
     # Returns an ordered list of health checks, each with Status (OK/WARN/FAIL)
     # and a short Detail string. Shared by the on-screen check and the report.
@@ -429,6 +469,16 @@ function Get-HealthSummary {
     $st = if ($errCount -gt 0) { 'WARN' } else { 'OK' }
     $checks += [PSCustomObject]@{ Name = 'System errors (24h)'; Status = $st; Detail = $detail }
 
+    # --- Network adapters (packet errors / discards, cumulative since boot) ---
+    $nics = Get-NetworkAdapterHealth
+    if ($nics) {
+        $netErr  = ($nics | ForEach-Object { $_.RxErrors + $_.TxErrors }       | Measure-Object -Sum).Sum
+        $netDisc = ($nics | ForEach-Object { $_.RxDiscarded + $_.TxDiscarded } | Measure-Object -Sum).Sum
+        $st = if ($netErr -gt 0) { 'WARN' } else { 'OK' }
+        $checks += [PSCustomObject]@{ Name = 'Network adapters'; Status = $st
+            Detail = ("{0} up; errors: {1}, discards: {2} (since boot)" -f @($nics).Count, $netErr, $netDisc) }
+    }
+
     # --- Uptime (informational) ---
     if ($os) {
         $uptime = (Get-Date) - $os.LastBootUpTime
@@ -498,6 +548,11 @@ function Export-HealthReport {
             Select-Object DisplayName, Name, Status
         if ($svc) { $svc | Format-Table -AutoSize | Out-String } else { "  (none)`n" }
 
+        "`n[NETWORK ADAPTERS - discards/errors cumulative since boot]"
+        $nic = Get-NetworkAdapterHealth
+        if ($nic) { $nic | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize | Out-String }
+        else { "  (Get-NetAdapter unavailable or no connected adapters)`n" }
+
         "`n[RECENT SYSTEM ERRORS - last 24h]"
         $ev = Get-RecentSystemErrors -Hours 24 -Max 20 |
             Select-Object @{N='Time';E={$_.TimeCreated}}, @{N='Level';E={$_.LevelDisplayName}},
@@ -533,6 +588,7 @@ function Invoke-SystemHealthCheck {
     Write-HealthSummary (Get-HealthSummary)
     Get-DiskSpace
     Get-TopResourceUsers -Seconds 3
+    Show-NetworkStatus
     Show-RecentSystemErrors
 }
 
@@ -649,6 +705,7 @@ function Show-AdminMenu {
         Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
         Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
+        Write-Host "  [N]  Network Adapters"        -ForegroundColor Green
         Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
         Write-Host "  [E]  Export Health Report"    -ForegroundColor DarkCyan
         if (-not $admin) {
@@ -683,6 +740,7 @@ function Show-AdminMenu {
             'M' { Get-TopMemory }
             'S' { Get-SwapUsage }
             'A' { Get-ActiveSessions }
+            'N' { Show-NetworkStatus }
             'C' { Invoke-DiskCleanup -Drive 'C' }
             'E' { Export-HealthReport }
             'R' { Invoke-RelaunchAsAdmin }
@@ -691,7 +749,7 @@ function Show-AdminMenu {
                 return
             }
             default {
-                Write-Host "  Invalid option. Please choose 0-5, A, C, E, M, R, or S." -ForegroundColor Red
+                Write-Host "  Invalid option. Please choose 0-5, A, C, E, M, N, R, or S." -ForegroundColor Red
                 $ranTask = $false
             }
         }
