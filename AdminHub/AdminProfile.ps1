@@ -479,7 +479,38 @@ function Get-ActiveSessions {
 
 function Show-LogTail {
     Write-Header "Tail a Log File"
-    $path = Read-Host "  Log file, directory, or wildcard (e.g. C:\inetpub\logs\LogFiles\W3SVC1\*.log)"
+
+    # Quick-pick of common server logs - only those that exist on this box are shown.
+    $common = @(
+        @{ Label = 'CBS (Windows servicing)';   Path = "$env:SystemRoot\Logs\CBS\CBS.log" },
+        @{ Label = 'DISM';                       Path = "$env:SystemRoot\Logs\DISM\dism.log" },
+        @{ Label = 'IIS logs (newest)';          Path = "$env:SystemDrive\inetpub\logs\LogFiles" },
+        @{ Label = 'System32 LogFiles';          Path = "$env:SystemRoot\System32\LogFiles" },
+        @{ Label = 'Windows setup (Panther)';    Path = "$env:SystemRoot\Panther\setupact.log" },
+        @{ Label = 'AdminHub health reports';    Path = "$env:SystemDrive\AdminReports" }
+    )
+    $avail = @($common | Where-Object { Test-Path $_.Path })
+
+    $path = $null
+    if ($avail.Count -gt 0) {
+        Write-Host "  Quick pick a common log, or enter a path:" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $avail.Count; $i++) {
+            Write-Host ("    [{0}] {1}" -f ($i + 1), $avail[$i].Label) -ForegroundColor Green
+            Write-Host ("        {0}" -f $avail[$i].Path) -ForegroundColor DarkGray
+        }
+        Write-Host "    [P] Enter a custom path" -ForegroundColor Green
+        $sel = Read-Host "  Select a number, P, or paste a path"
+        if ([string]::IsNullOrWhiteSpace($sel)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+        if ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $avail.Count) {
+            $path = $avail[[int]$sel - 1].Path
+        } elseif ($sel -match '^[Pp]$') {
+            $path = Read-Host "  Log file, directory, or wildcard"
+        } else {
+            $path = $sel   # treat anything else as a path typed directly
+        }
+    } else {
+        $path = Read-Host "  Log file, directory, or wildcard (e.g. C:\inetpub\logs\LogFiles\W3SVC1\*.log)"
+    }
     if ([string]::IsNullOrWhiteSpace($path)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
 
     # Resolve to a single file: exact file, newest file in a directory, or newest wildcard match.

@@ -217,13 +217,14 @@ Uses `Get-NetTCPConnection` / `Get-NetUDPEndpoint`.
 
 ### Tail a log file `[L]`
 
-Like `tail` for Windows. Give it a file path, a directory (it tails the newest
-file in it), or a wildcard (newest match), choose how many lines to show
-(default 20), and optionally **follow live** (`tail -f` via
-`Get-Content -Wait`). Handy for IIS logs, app logs, `CBS.log`, or the AdminHub
-health reports. Following blocks until `Ctrl+C`, which returns you to the shell
-(type `Show-AdminMenu` to reopen the menu); the non-follow mode just prints the
-last N lines and returns to the menu.
+Like `tail` for Windows. Starts with a **quick-pick** of common server logs that
+actually exist on the box — CBS servicing log, DISM, IIS logs, `System32\LogFiles`,
+Windows setup (Panther), and the AdminHub health reports — or pick `[P]` / just
+paste any path. The target can be a file, a directory (it tails the newest file
+in it), or a wildcard (newest match). Choose how many lines to show (default 20)
+and optionally **follow live** (`tail -f` via `Get-Content -Wait`). Following
+blocks until `Ctrl+C`, which returns you to the shell (type `Show-AdminMenu` to
+reopen the menu); non-follow mode prints the last N lines and returns to the menu.
 
 ### Restart / kill a service `[3]`
 
