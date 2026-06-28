@@ -32,6 +32,8 @@ The menu shown at startup:
   [S]  Top 10 Swap/Page File
   [A]  Active User Sessions
   [L]  Tail a Log File
+  [V]  Search Event Logs
+  [K]  Kill a Process
 
   Networking
   [N]  Adapters, teaming, DNS, gateway
@@ -39,12 +41,13 @@ The menu shown at startup:
 
   Maintenance
   [C]  Disk Cleanup (C: drive)
+  [B]  Reboot / Restart History
   [E]  Export Health Report
 
   [R]  Relaunch as Administrator
   [0]  Exit to Shell
 ============================================================
-  Note: tasks like [3] and [C] need admin - press [R] to elevate.
+  Note: tasks like [3], [K], [B] and [C] need admin - press [R] to elevate.
   Tip: after a task, press [X] then Enter to exit  -  type Show-AdminMenu to reopen.
 
   Select an option
@@ -283,6 +286,56 @@ rdp-tcp#2   r.cashier     3  Active
   2026-06-27 14:31:09 POST /api/login 200 41
 ```
 
+**`[V]` Search Event Logs** — query any event log by level, Event ID, keyword, and
+time window. Pick System / Application / Security / Setup, or type a custom log name
+(e.g. `Microsoft-Windows-TaskScheduler/Operational`). Reading the **Security** log
+needs admin. Uses `Get-WinEvent`, so it works on both Windows PowerShell 5.1 and
+PowerShell 7.
+
+```text
+============================================================
+  Event Log Search
+============================================================
+  Choose a log, or enter a custom log name:
+    [1] System
+    [2] Application
+    [3] Security (admin)
+    [4] Setup
+    [C] Custom log name
+  Select: 1
+  Level: [1] Critical+Error  [2] +Warning  [3] All levels
+  Select (default 1): 1
+  Look back how many hours? (default 24): 48
+  Filter by Event ID? (blank = any): 7043
+  Filter by keyword in message? (blank = none):
+  Searching System ...
+
+Time           Level Source                  ID Message
+----           ----- ------                  -- -------
+06-28 10:28:14 Error Service Control Manager 7043 The ... service did not shut down properly.
+```
+
+**`[K]` Kill a Process** — kill an arbitrary process by name or PID. Lists matches
+(top 20 by memory) and always acts on a single confirmed PID, never by name, so a
+typo can't sweep up unrelated processes. Reuses the same guards as the service-kill
+path: it refuses any process Windows marks **critical** (terminating it bugchecks the
+OS) and warns when the PID hosts services (steering you to `[3]` instead).
+
+```text
+============================================================
+  Kill a Process
+============================================================
+  Enter a process name or PID: notepad
+
+  Id ProcessName Mem(MB) CPU(s)
+  -- ----------- ------- ------
+8421 notepad        24.3    1.2
+
+  Enter PID 8421 to confirm the kill (blank to cancel): 8421
+  Force-kill PID 8421 (notepad)? Abrupt - unsaved state is lost. [Y/N]: Y
+  Killed PID 8421 (notepad).
+```
+
 ### Networking
 
 **`[N]` Network** — adapters, gateway ping, NIC teaming, DNS, and network location:
@@ -386,6 +439,34 @@ SoftwareDistribution\Download   340  1844.21
   C: - Used: 75.4 GB  Free: 45.1 GB  Total: 120.5 GB
 ```
 
+**`[B]` Reboot / Restart History** — shows whether a reboot is pending, current
+uptime, and recent shutdown/startup events parsed from the System log (1074 clean
+restart with who + reason, 6005/6006 boot/clean-shutdown, 6008 unexpected shutdown,
+41 Kernel-Power dirty reboot/crash). When elevated it can reboot now, schedule a
+delayed reboot with a logged reason, or abort a pending scheduled reboot (`shutdown
+/a`).
+
+```text
+============================================================
+  Reboot / Restart History
+============================================================
+  REBOOT PENDING - Windows Update
+  Up 6d 4h 12m  (last boot 2026-06-22 06:18)
+
+  Recent shutdown / startup events:
+Time        ID   Event
+----        --   -----
+06-22 06:18 6005 The Event log service was started.
+06-22 06:17 1074 ...initiated the restart of computer ... reason: Operating System: Upgrade (Planned)
+
+  [N] Reboot now    [S] Schedule (delay)    [A] Abort pending reboot    [C] Cancel
+  Choose: S
+  Reboot in how many minutes?: 15
+  Reason / comment (recorded in the shutdown event): Monthly patching
+  Schedule reboot of SRV-DB01 in 15 minute(s)? [Y/N]: Y
+  Reboot scheduled in 15 minute(s). Abort with [A].
+```
+
 **`[E]` Export Health Report** — prints the health summary shown above and writes the
 full report to `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
 
@@ -405,9 +486,12 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 | S   | Top 10 Swap / Page File     | Read        |
 | A   | Active User Sessions        | Read        |
 | L   | Tail a Log File             | Read        |
+| V   | Search Event Logs           | Read        |
+| K   | Kill a Process              | Action      |
 | N   | Network: adapters, teaming, DNS, gateway | Read |
 | P   | Listening Ports / Connections | Read       |
 | C   | Disk Cleanup (C: drive)     | Destructive |
+| B   | Reboot / Restart History    | Destructive |
 | E   | Export Health Report        | Action      |
 | R   | Relaunch as Administrator   | Elevation   |
 | 0   | Exit to Shell               | —           |

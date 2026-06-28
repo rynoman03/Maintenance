@@ -358,6 +358,70 @@ function Restart-ServiceByName {
     }
 }
 
+function Stop-ProcessInteractive {
+    # Kill an arbitrary process by name or PID. Always operates by a single PID
+    # (never by name) so a typo can't sweep up unrelated processes, and reuses the
+    # same OS-critical guard as the service-kill path so it can't bugcheck the box.
+    Write-Header "Kill a Process"
+    $q = Read-Host "  Enter a process name or PID"
+    if ([string]::IsNullOrWhiteSpace($q)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+    if ($q -match '^\d+$') {
+        $procs = @(Get-Process -Id ([int]$q) -ErrorAction SilentlyContinue)
+    } else {
+        $name  = $q -replace '\.exe$',''   # accept a typed 'notepad.exe'
+        $procs = @(Get-Process -Name $name -ErrorAction SilentlyContinue)
+    }
+    if ($procs.Count -eq 0) { Write-Host "  No process matches '$q'." -ForegroundColor Red; return }
+
+    Write-Host ""
+    $procs | Sort-Object WorkingSet -Descending | Select-Object -First 20 Id, ProcessName,
+        @{N='Mem(MB)'; E={ [math]::Round($_.WorkingSet / 1MB, 1) }},
+        @{N='CPU(s)';  E={ if ($_.CPU) { [math]::Round($_.CPU, 1) } else { 0 } }} |
+        Format-Table -AutoSize
+
+    if ($procs.Count -gt 1) {
+        $pidIn = Read-Host "  Multiple matches - enter the exact PID to kill (blank to cancel)"
+    } else {
+        $pidIn = Read-Host "  Enter PID $($procs[0].Id) to confirm the kill (blank to cancel)"
+    }
+    if ($pidIn -notmatch '^\d+$') { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+    $targetPid = [int]$pidIn
+
+    # Only allow a PID that was actually listed above.
+    if ($procs.Id -notcontains $targetPid) {
+        Write-Host "  PID $targetPid was not in the list above - aborting." -ForegroundColor Red; return
+    }
+    $proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+    if (-not $proc) { Write-Host "  PID $targetPid is no longer running." -ForegroundColor Yellow; return }
+
+    # Guard: refuse a Windows-critical process (terminating it bugchecks the OS).
+    if (Test-ProcessIsCritical -ProcessId $targetPid) {
+        Write-Host "  Refusing to kill PID ${targetPid}: Windows marks it CRITICAL (terminating it bugchecks the OS)." -ForegroundColor Red
+        return
+    }
+    # If the PID hosts services, killing it stops them all - steer to the service path.
+    $svc = @(Get-CimInstance Win32_Service -Filter "ProcessId=$targetPid" -ErrorAction SilentlyContinue)
+    if ($svc.Count -gt 0) {
+        Write-Host ("  PID $targetPid hosts {0} service(s): {1}" -f `
+            $svc.Count, (($svc | Select-Object -First 8 -ExpandProperty Name) -join ', ')) -ForegroundColor Yellow
+        Write-Host "  Killing it stops all of them - consider [3] Restart / Kill a Service instead." -ForegroundColor Yellow
+    }
+    if (-not (Test-IsAdmin)) {
+        Write-Host "  Note: killing a service or another user's process needs admin - use [R] to elevate." -ForegroundColor DarkGray
+    }
+
+    $confirm = Read-Host "  Force-kill PID $targetPid ($($proc.ProcessName))? Abrupt - unsaved state is lost. [Y/N]"
+    if ($confirm -notmatch '^[Yy]') { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+    try {
+        Stop-Process -Id $targetPid -Force -ErrorAction Stop
+        Write-Host "  Killed PID $targetPid ($($proc.ProcessName))." -ForegroundColor Green
+    } catch {
+        Write-Host "  Kill failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 function Test-PendingReboot {
     $reasons = @()
 
@@ -611,6 +675,95 @@ function Show-RecentSystemErrors {
         @{N='Message'; E={ ($_.Message -split "`r?`n")[0] }} |
         Format-Table -AutoSize -Wrap
     Write-Host "  Showing up to $Max most recent (Critical + Error)." -ForegroundColor DarkGray
+}
+
+function Get-EventLogSearch {
+    # Query any event log with optional level / ID / keyword filters over the last
+    # $Hours hours. Get-WinEvent (5.1 + 7 safe) throws on zero matches, so that is
+    # caught and returned as an empty array. The keyword is matched literally on the
+    # first/full message after retrieval, so a wider pull is scanned to fill $Max.
+    param(
+        [string]$LogName = 'System',
+        [int[]]$Level,
+        [int]$EventId = 0,
+        [string]$Keyword,
+        [int]$Hours = 24,
+        [int]$Max = 50
+    )
+    $filter = @{ LogName = $LogName; StartTime = (Get-Date).AddHours(-$Hours) }
+    if ($Level)         { $filter.Level = $Level }
+    if ($EventId -gt 0) { $filter.Id    = $EventId }
+    $pull = if ([string]::IsNullOrWhiteSpace($Keyword)) { $Max } else { $Max * 5 }
+    try {
+        $events = @(Get-WinEvent -FilterHashtable $filter -MaxEvents $pull -ErrorAction Stop)
+    } catch { return @() }
+    if (-not [string]::IsNullOrWhiteSpace($Keyword)) {
+        $events = @($events | Where-Object { $_.Message -and $_.Message -match [regex]::Escape($Keyword) })
+    }
+    @($events | Select-Object -First $Max)
+}
+
+function Show-EventLogSearch {
+    Write-Header "Event Log Search"
+
+    $logs = @(
+        @{ Label = 'System';           Name = 'System' },
+        @{ Label = 'Application';      Name = 'Application' },
+        @{ Label = 'Security (admin)'; Name = 'Security' },
+        @{ Label = 'Setup';            Name = 'Setup' }
+    )
+    Write-Host "  Choose a log, or enter a custom log name:" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $logs.Count; $i++) {
+        Write-Host ("    [{0}] {1}" -f ($i + 1), $logs[$i].Label) -ForegroundColor Green
+    }
+    Write-Host "    [C] Custom log name" -ForegroundColor Green
+    $sel = Read-Host "  Select"
+    if ([string]::IsNullOrWhiteSpace($sel)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+    if ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $logs.Count) {
+        $logName = $logs[[int]$sel - 1].Name
+    } elseif ($sel -match '^[Cc]$') {
+        $logName = Read-Host "  Enter exact log name (e.g. Microsoft-Windows-TaskScheduler/Operational)"
+    } else {
+        Write-Host "  Invalid selection." -ForegroundColor Red; return
+    }
+    if ([string]::IsNullOrWhiteSpace($logName)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+    if ($logName -eq 'Security' -and -not (Test-IsAdmin)) {
+        Write-Host "  The Security log needs admin - press [R] at the menu to elevate." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ""
+    Write-Host "  Level: [1] Critical+Error  [2] +Warning  [3] All levels" -ForegroundColor Cyan
+    $level = switch (Read-Host "  Select (default 1)") {
+        '2'     { 1, 2, 3 }
+        '3'     { @() }
+        default { 1, 2 }
+    }
+
+    $hoursIn = Read-Host "  Look back how many hours? (default 24)"
+    $hours   = if ($hoursIn -match '^\d+$' -and [int]$hoursIn -gt 0) { [int]$hoursIn } else { 24 }
+
+    $idIn    = Read-Host "  Filter by Event ID? (blank = any)"
+    $eventId = if ($idIn -match '^\d+$') { [int]$idIn } else { 0 }
+
+    $keyword = Read-Host "  Filter by keyword in message? (blank = none)"
+
+    Write-Host "  Searching $logName ..." -ForegroundColor DarkGray
+    $events = Get-EventLogSearch -LogName $logName -Level $level -EventId $eventId -Keyword $keyword -Hours $hours -Max 50
+    if (-not $events) {
+        Write-Host "  No matching events in the last $hours hour(s)." -ForegroundColor Green
+        return
+    }
+    $events | Select-Object `
+        @{N='Time';    E={ $_.TimeCreated.ToString('MM-dd HH:mm:ss') }},
+        @{N='Level';   E={ $_.LevelDisplayName }},
+        @{N='Source';  E={ $_.ProviderName }},
+        @{N='ID';      E={ $_.Id }},
+        @{N='Message'; E={ ($_.Message -split "`r?`n")[0] }} |
+        Format-Table -AutoSize -Wrap
+    Write-Host ("  Showing up to 50 matches from {0}." -f $logName) -ForegroundColor DarkGray
 }
 
 function Get-NetworkAdapterHealth {
@@ -1537,6 +1690,90 @@ function Invoke-DiskCleanup {
     }
 }
 
+function Get-RebootHistory {
+    # Recent shutdown / startup / crash events from the System log, newest first.
+    #   1074 = clean shutdown/restart requested (who + reason)
+    #   1076 = reason recorded after an unexpected shutdown
+    #   6005 = Event Log service started (system boot)
+    #   6006 = Event Log service stopped (clean shutdown)
+    #   6008 = the previous shutdown was UNEXPECTED
+    #     41 = Kernel-Power: system rebooted without a clean shutdown (crash/power loss)
+    param([int]$Max = 15)
+    try {
+        Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 1074, 1076, 6005, 6006, 6008, 41 } `
+            -MaxEvents $Max -ErrorAction Stop |
+            Select-Object TimeCreated, Id, ProviderName,
+                @{N='Info'; E={ ($_.Message -split "`r?`n")[0] }}
+    } catch { @() }
+}
+
+function Restart-ComputerInteractive {
+    # Show pending-reboot state, uptime and recent shutdown/boot history, then offer
+    # a guarded reboot (now or scheduled) or an abort of a pending scheduled reboot.
+    Write-Header "Reboot / Restart History"
+
+    $pending = Test-PendingReboot
+    if ($pending.Count -gt 0) {
+        Write-Host ("  REBOOT PENDING - {0}" -f ($pending -join ', ')) -ForegroundColor Yellow
+    } else {
+        Write-Host "  No reboot currently pending." -ForegroundColor Green
+    }
+
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    if ($os) {
+        $up = (Get-Date) - $os.LastBootUpTime
+        Write-Host ("  Up {0}d {1}h {2}m  (last boot {3:yyyy-MM-dd HH:mm})" -f `
+            $up.Days, $up.Hours, $up.Minutes, $os.LastBootUpTime) -ForegroundColor Cyan
+    }
+
+    Write-Host "`n  Recent shutdown / startup events:" -ForegroundColor Cyan
+    $hist = Get-RebootHistory -Max 15
+    if ($hist) {
+        $hist | Select-Object `
+            @{N='Time';  E={ $_.TimeCreated.ToString('MM-dd HH:mm') }},
+            @{N='ID';    E={ $_.Id }},
+            @{N='Event'; E={ $_.Info }} | Format-Table -AutoSize -Wrap
+    } else {
+        Write-Host "  No shutdown/startup history available." -ForegroundColor DarkGray
+    }
+
+    Write-Host ""
+    if (-not (Test-IsAdmin)) {
+        Write-Host "  Rebooting needs admin - press [R] at the menu to elevate." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "  [N] Reboot now    [S] Schedule (delay)    [A] Abort pending reboot    [C] Cancel" -ForegroundColor DarkGray
+    switch -Regex (Read-Host "  Choose") {
+        '^[Nn]' {
+            $reason = Read-Host "  Reason / comment (recorded in the shutdown event)"
+            if ([string]::IsNullOrWhiteSpace($reason)) { $reason = 'AdminHub manual reboot' }
+            $confirm = Read-Host "  Reboot $env:COMPUTERNAME NOW? All sessions will be disconnected. [Y/N]"
+            if ($confirm -notmatch '^[Yy]') { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+            shutdown.exe /r /t 0 /c $reason 2>$null
+            if ($LASTEXITCODE -eq 0) { Write-Host "  Reboot initiated." -ForegroundColor Green }
+            else { Write-Host "  Reboot request failed (exit $LASTEXITCODE)." -ForegroundColor Red }
+        }
+        '^[Ss]' {
+            $minIn = Read-Host "  Reboot in how many minutes?"
+            if ($minIn -notmatch '^\d+$' -or [int]$minIn -le 0) { Write-Host "  Invalid delay - cancelled." -ForegroundColor Yellow; return }
+            $reason = Read-Host "  Reason / comment (recorded in the shutdown event)"
+            if ([string]::IsNullOrWhiteSpace($reason)) { $reason = 'AdminHub scheduled reboot' }
+            $confirm = Read-Host "  Schedule reboot of $env:COMPUTERNAME in $minIn minute(s)? [Y/N]"
+            if ($confirm -notmatch '^[Yy]') { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+            shutdown.exe /r /t ([int]$minIn * 60) /c $reason 2>$null
+            if ($LASTEXITCODE -eq 0) { Write-Host "  Reboot scheduled in $minIn minute(s). Abort with [A]." -ForegroundColor Green }
+            else { Write-Host "  Schedule failed (exit $LASTEXITCODE)." -ForegroundColor Red }
+        }
+        '^[Aa]' {
+            shutdown.exe /a 2>$null
+            if ($LASTEXITCODE -eq 0) { Write-Host "  Scheduled shutdown aborted." -ForegroundColor Green }
+            else { Write-Host "  No scheduled shutdown to abort." -ForegroundColor Yellow }
+        }
+        default { Write-Host "  Cancelled." -ForegroundColor Yellow }
+    }
+}
+
 function Show-AdminMenu {
     Show-Banner
     $admin = Test-IsAdmin
@@ -1560,6 +1797,8 @@ function Show-AdminMenu {
         Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
         Write-Host "  [L]  Tail a Log File"         -ForegroundColor Green
+        Write-Host "  [V]  Search Event Logs"       -ForegroundColor Green
+        Write-Host "  [K]  Kill a Process"          -ForegroundColor Yellow
         Write-Host ""
         Write-Host "  Networking" -ForegroundColor DarkCyan
         Write-Host "  [N]  Adapters, teaming, DNS, gateway" -ForegroundColor Green
@@ -1567,6 +1806,7 @@ function Show-AdminMenu {
         Write-Host ""
         Write-Host "  Maintenance" -ForegroundColor DarkCyan
         Write-Host "  [C]  Disk Cleanup (C: drive)" -ForegroundColor Magenta
+        Write-Host "  [B]  Reboot / Restart History"-ForegroundColor Magenta
         Write-Host "  [E]  Export Health Report"    -ForegroundColor DarkCyan
         Write-Host ""
         if (-not $admin) {
@@ -1577,6 +1817,10 @@ function Show-AdminMenu {
         if (-not $admin) {
             Write-Host "  Note: tasks like " -ForegroundColor DarkGray -NoNewline
             Write-Host "[3]" -ForegroundColor Yellow -NoNewline
+            Write-Host ", " -ForegroundColor DarkGray -NoNewline
+            Write-Host "[K]" -ForegroundColor Yellow -NoNewline
+            Write-Host ", " -ForegroundColor DarkGray -NoNewline
+            Write-Host "[B]" -ForegroundColor Magenta -NoNewline
             Write-Host " and " -ForegroundColor DarkGray -NoNewline
             Write-Host "[C]" -ForegroundColor Magenta -NoNewline
             Write-Host " need admin - press " -ForegroundColor DarkGray -NoNewline
@@ -1603,9 +1847,12 @@ function Show-AdminMenu {
             'S' { Get-SwapUsage }
             'A' { Get-ActiveSessions }
             'L' { Show-LogTail }
+            'V' { Show-EventLogSearch }
+            'K' { Stop-ProcessInteractive }
             'N' { Show-NetworkStatus }
             'P' { Show-PortsConnections }
             'C' { Invoke-DiskCleanup -Drive 'C' }
+            'B' { Restart-ComputerInteractive }
             'E' { Export-HealthReport }
             'R' { Invoke-RelaunchAsAdmin }
             '0' {
@@ -1613,7 +1860,7 @@ function Show-AdminMenu {
                 return
             }
             default {
-                Write-Host "  Invalid option. Please choose 0-5, A, C, E, L, M, N, P, R, or S." -ForegroundColor Red
+                Write-Host "  Invalid option. Please choose 0-5, A, B, C, E, K, L, M, N, P, R, S, or V." -ForegroundColor Red
                 $ranTask = $false
             }
         }
@@ -1693,4 +1940,4 @@ Export-ModuleMember -Alias adminhub -Function `
     Get-TopMemory, Get-SwapUsage, Get-ActiveSessions, Show-LogTail, Show-NetworkStatus,
     Show-PortsConnections, Show-NetworkLocation, Restart-ServiceByName, Invoke-DiskCleanup,
     Get-PendingUpdates, Show-RecentSystemErrors, Show-HardwareHealth, Show-CpuMemoryFaults,
-    Show-TimeSync
+    Show-TimeSync, Show-EventLogSearch, Stop-ProcessInteractive, Restart-ComputerInteractive

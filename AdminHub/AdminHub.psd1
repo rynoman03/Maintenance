@@ -12,7 +12,7 @@
 RootModule = 'AdminHub.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.1.0'
+ModuleVersion = '1.2.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -75,8 +75,9 @@ FunctionsToExport = 'Show-AdminMenu', 'Invoke-SystemHealthCheck', 'Get-HealthSum
                'Get-SwapUsage', 'Get-ActiveSessions', 'Show-LogTail', 
                'Show-NetworkStatus', 'Show-PortsConnections', 'Show-NetworkLocation', 
                'Restart-ServiceByName', 'Invoke-DiskCleanup', 'Get-PendingUpdates', 
-               'Show-RecentSystemErrors', 'Show-HardwareHealth', 
-               'Show-CpuMemoryFaults', 'Show-TimeSync'
+               'Show-RecentSystemErrors', 'Show-HardwareHealth',
+               'Show-CpuMemoryFaults', 'Show-TimeSync', 'Show-EventLogSearch',
+               'Stop-ProcessInteractive', 'Restart-ComputerInteractive'
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
