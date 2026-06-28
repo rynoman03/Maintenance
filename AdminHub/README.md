@@ -31,6 +31,7 @@ The menu shown at startup:
   [M]  Top 10 Memory Usage
   [S]  Top 10 Swap/Page File
   [A]  Active User Sessions
+  [L]  Tail a Log File
 
   Networking
   [N]  Adapters, teaming, DNS, gateway
@@ -102,6 +103,7 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 | M   | Top 10 Memory Usage         | Read        |
 | S   | Top 10 Swap / Page File     | Read        |
 | A   | Active User Sessions        | Read        |
+| L   | Tail a Log File             | Read        |
 | N   | Network: adapters, teaming, DNS, gateway | Read |
 | P   | Listening Ports / Connections | Read       |
 | C   | Disk Cleanup (C: drive)     | Destructive |
@@ -212,6 +214,16 @@ see what the server exposes and which service owns each port), followed by a
 breakdown of TCP connections by state (Established, TimeWait, etc.) and the
 current established connections (local/remote address + process, up to 15).
 Uses `Get-NetTCPConnection` / `Get-NetUDPEndpoint`.
+
+### Tail a log file `[L]`
+
+Like `tail` for Windows. Give it a file path, a directory (it tails the newest
+file in it), or a wildcard (newest match), choose how many lines to show
+(default 20), and optionally **follow live** (`tail -f` via
+`Get-Content -Wait`). Handy for IIS logs, app logs, `CBS.log`, or the AdminHub
+health reports. Following blocks until `Ctrl+C`, which returns you to the shell
+(type `Show-AdminMenu` to reopen the menu); the non-follow mode just prints the
+last N lines and returns to the menu.
 
 ### Restart / kill a service `[3]`
 

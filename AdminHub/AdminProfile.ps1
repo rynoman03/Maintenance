@@ -477,6 +477,46 @@ function Get-ActiveSessions {
     } | Format-Table -AutoSize
 }
 
+function Show-LogTail {
+    Write-Header "Tail a Log File"
+    $path = Read-Host "  Log file, directory, or wildcard (e.g. C:\inetpub\logs\LogFiles\W3SVC1\*.log)"
+    if ([string]::IsNullOrWhiteSpace($path)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+    # Resolve to a single file: exact file, newest file in a directory, or newest wildcard match.
+    $file = $null
+    $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+    if ($item -and $item.PSIsContainer) {
+        $file = Get-ChildItem -LiteralPath $path -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($file) { Write-Host "  Directory given - tailing newest file: $($file.Name)" -ForegroundColor DarkGray }
+    } elseif ($item) {
+        $file = $item
+    } else {
+        $hits = @(Get-ChildItem -Path $path -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+        if ($hits.Count -gt 1) { Write-Host "  $($hits.Count) files match - tailing newest: $($hits[0].Name)" -ForegroundColor DarkGray }
+        $file = $hits | Select-Object -First 1
+    }
+    if (-not $file) { Write-Host "  No file found for '$path'." -ForegroundColor Red; return }
+
+    $nIn = Read-Host "  How many lines? [default 20]"
+    $n = if ($nIn -match '^\d+$') { [int]$nIn } else { 20 }
+    $follow = (Read-Host "  Follow live, like tail -f? [Y/N]") -match '^[Yy]'
+
+    Write-Host ""
+    Write-Host ("  --- {0}  (last {1} lines{2}) ---" -f $file.FullName, $n,
+        $(if ($follow) { '; following - press Ctrl+C to stop' } else { '' })) -ForegroundColor Cyan
+    try {
+        if ($follow) {
+            Write-Host "  (Ctrl+C returns to the shell; type Show-AdminMenu to reopen the menu)" -ForegroundColor DarkGray
+            Get-Content -LiteralPath $file.FullName -Tail $n -Wait -ErrorAction Stop
+        } else {
+            Get-Content -LiteralPath $file.FullName -Tail $n -ErrorAction Stop
+        }
+    } catch {
+        Write-Host "  Error reading log: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 function Get-RecentSystemErrors {
     # Critical (1) + Error (2) events from the System log in the last $Hours hours.
     # Uses Get-WinEvent so it works in both Windows PowerShell 5.1 and PowerShell 7
@@ -1331,6 +1371,7 @@ function Show-AdminMenu {
         Write-Host "  [M]  Top 10 Memory Usage"     -ForegroundColor Green
         Write-Host "  [S]  Top 10 Swap/Page File"   -ForegroundColor Green
         Write-Host "  [A]  Active User Sessions"    -ForegroundColor Green
+        Write-Host "  [L]  Tail a Log File"         -ForegroundColor Green
         Write-Host ""
         Write-Host "  Networking" -ForegroundColor DarkCyan
         Write-Host "  [N]  Adapters, teaming, DNS, gateway" -ForegroundColor Green
@@ -1372,6 +1413,7 @@ function Show-AdminMenu {
             'M' { Get-TopMemory }
             'S' { Get-SwapUsage }
             'A' { Get-ActiveSessions }
+            'L' { Show-LogTail }
             'N' { Show-NetworkStatus }
             'P' { Show-PortsConnections }
             'C' { Invoke-DiskCleanup -Drive 'C' }
@@ -1382,7 +1424,7 @@ function Show-AdminMenu {
                 return
             }
             default {
-                Write-Host "  Invalid option. Please choose 0-5, A, C, E, M, N, P, R, or S." -ForegroundColor Red
+                Write-Host "  Invalid option. Please choose 0-5, A, C, E, L, M, N, P, R, or S." -ForegroundColor Red
                 $ranTask = $false
             }
         }
