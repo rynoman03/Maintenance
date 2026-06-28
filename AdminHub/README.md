@@ -76,6 +76,9 @@ screen before the full report is written to disk:
   [OK  ] Hardware (temp/PSU)   all temperature/power sensors Ok [Dell racadm]
   [WARN] CPU/memory faults     3 WHEA event(s) (0 uncorrected)
   [OK  ] Time sync             offset +0.42s from corp.example.com
+  [WARN] Certificate expiry    1 expiring; soonest: CN=web.corp (12d)
+  [OK  ] Scheduled tasks       no failed non-Microsoft tasks
+  [OK  ] Security posture      Defender/firewall/SMBv1/UAC all OK
   [OK  ] Listening ports       28 TCP, 14 UDP listening; 53 established
   [OK  ] Uptime                21d 7h since last boot
 
@@ -469,6 +472,15 @@ item, plus an overall status:
 - **Time sync** — domain-joined machines only: measures clock offset from the
   domain via `w32tm`. WARN at ≥ 2s drift, FAIL at ≥ 30s (well before Kerberos'
   5-minute skew limit).
+- **Certificate expiry** — server-auth certificates (and no-EKU certs) in
+  `LocalMachine\My`; WARN within 30 days, FAIL expired or within 7 days. The
+  soonest expiry drives the verdict; the report lists each cert with days-left.
+- **Scheduled tasks** — non-Microsoft scheduled tasks whose last run failed
+  (benign `SCHED_S_*` status codes excluded); WARN with the failing task names.
+- **Security posture** — Defender real-time protection + signature age (passive
+  /EDR mode is respected), Windows Firewall (FAIL only if all profiles are off),
+  SMBv1 enabled, BitLocker on the system drive (physical), and UAC. FAIL on the
+  serious items, WARN on the softer ones.
 - **Listening ports** — informational count of TCP/UDP listeners and established
   TCP connections (full per-port detail with owning process is under `[P]`).
 - **Uptime** — time since last boot
@@ -555,6 +567,33 @@ falls back to cumulative CPU time if live sampling is unavailable.
 | `Deploy-AdminProfile.ps1`  | Deploys the profile to all users on local or remote servers.   |
 | `Remove-AdminProfile.ps1`  | Rolls back the profile, restoring any backup that was made.    |
 | `Install-UserProfile.ps1`  | Installs/refreshes the profile for the current user only (no admin). |
+
+## Monitoring / non-interactive use
+
+Dot-sourced as a profile, AdminHub shows the menu **only in an interactive
+console** — remoting, `Invoke-Command`, `-NonInteractive`, piped-stdin, and
+scheduled-task sessions load it silently without launching the menu, so it's
+safe as an AllUsers profile on automated servers.
+
+Run as a script, it doubles as a health probe for Nagios/Zabbix/Prometheus:
+
+```powershell
+powershell -NoProfile -File AdminProfile.ps1 -RunCheck            # text summary + exit code
+powershell -NoProfile -File AdminProfile.ps1 -RunCheck -AsJson    # one JSON object
+powershell -NoProfile -File AdminProfile.ps1 -RunCheck -Quiet     # exit code only
+```
+
+Exit codes follow the Nagios convention: **0 = OK, 1 = WARN, 2 = FAIL
+(CRITICAL), 3 = UNKNOWN** (an `ERROR`'d check or an empty/failed summary maps to
+UNKNOWN, so a dead check engine never looks healthy). `-AsJson` emits:
+
+```json
+{"host":"SRV-DB01","timestamp":"2026-06-27T22:10:05.1234567Z","overall":"FAIL",
+ "checks":[{"Name":"Disk space","Status":"FAIL","Detail":"highest used: E: 92%","Value":92}, ...]}
+```
+
+`Value` carries a numeric where one makes sense (disk %, memory %, pagefile %,
+offsets, counts) so checks can be graphed as trends, not just pass/fail.
 
 ## Personal install (no admin)
 
