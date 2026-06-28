@@ -12,9 +12,10 @@ This repository is intentionally simple: most files live at the repository root 
 | File | Purpose |
 | --- | --- |
 | `UserGroup` | Interactive Active Directory group creation script. It creates or finds an owner group, creates a main group, sets the main group's `ManagedBy` attribute, and can add users to the owner group. |
-| `Disable TLS 1.0 and 1.1  Client & Server` | Disables TLS 1.0 and TLS 1.1 for both client and server roles by writing SCHANNEL registry keys. |
-| `Enable TLS 1.2 on Client and Server` | Enables TLS 1.2 client and server registry settings. |
-| `Enable TLS 1.3 on Client and Server` | Enables TLS 1.3 client and server registry settings and updates .NET strong crypto registry values where present. |
+| `TLS/` | TLS protocol configuration scripts (SCHANNEL registry). See below. |
+| `TLS/Disable TLS 1.0 and 1.1  Client & Server` | Disables TLS 1.0 and TLS 1.1 for both client and server roles by writing SCHANNEL registry keys. |
+| `TLS/Enable TLS 1.2 on Client and Server` | Enables TLS 1.2 client and server registry settings. |
+| `TLS/Enable TLS 1.3 on Client and Server` | Enables TLS 1.3 client and server registry settings and updates .NET strong crypto registry values where present. |
 | `Print Server List Printers` | Builds an Excel-based printer inventory from one or more print servers using WMI and Excel COM automation. |
 | `PingIt` | Reads a local `servers.txt` file and checks whether each server responds to `Test-Connection`. |
 | `Sendmail.ps1` | Sends a maintenance notification email through an SMTP server. Intended for use with Windows Task Scheduler or other automation. |
@@ -72,7 +73,7 @@ Before running a script against production servers, test with a disposable VM, t
 Several script filenames contain spaces. When running them directly, quote the path:
 
 ```powershell
-& ".\Enable TLS 1.2 on Client and Server"
+& ".\TLS\Enable TLS 1.2 on Client and Server"
 ```
 
 ## Script notes
