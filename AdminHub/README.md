@@ -25,7 +25,7 @@ The menu shown at startup:
   System & Diagnostics
   [1]  Disk Space
   [2]  Top Resource Users (live)
-  [3]  Restart a Service
+  [3]  Restart / Kill a Service
   [4]  Pending Windows Updates
   [5]  Full System Health Check
   [M]  Top 10 Memory Usage
@@ -71,6 +71,7 @@ screen before the full report is written to disk:
   [FAIL] Default gateway       unreachable: 10.20.0.1
   [WARN] NIC teaming           Team1 1/2
   [OK  ] DNS resolution        resolved corp.example.com
+  [WARN] Network location      NlaSvc running; profile: Public; Public profile may block inbound ping
   [OK  ] Hardware (temp/PSU)   all temperature/power sensors Ok [Dell racadm]
   [WARN] CPU/memory faults     3 WHEA event(s) (0 uncorrected)
   [OK  ] Time sync             offset +0.42s from corp.example.com
@@ -95,7 +96,7 @@ On screen the menu is grouped into **System & Diagnostics**, **Networking**
 |-----|-----------------------------|-------------|
 | 1   | Disk Space                  | Read        |
 | 2   | Top Resource Users (live)   | Read        |
-| 3   | Restart a Service           | Action      |
+| 3   | Restart / Kill a Service    | Action      |
 | 4   | Pending Windows Updates     | Action      |
 | 5   | Full System Health Check    | Read        |
 | M   | Top 10 Memory Usage         | Read        |
@@ -166,6 +167,12 @@ item, plus an overall status:
 - **DNS resolution** — on domain-joined machines, resolves the AD domain name to
   confirm DNS is answering; FAIL if it can't. Configured DNS servers are always
   listed. Skipped (not flagged) when not domain-joined.
+- **Network location** — checks Network Location Awareness (`NlaSvc`) and the
+  Network List Service (`netprofm`), plus the resulting connection-profile
+  category. FAIL if `NlaSvc` is stopped; WARN if a profile is `Public`. This
+  matters because if NLA misclassifies the network as Public, the Public Windows
+  Firewall profile applies and **blocks inbound ICMP** — so remote pings and
+  monitoring (e.g. Nagios) report the host as down even though it's up.
 - **Hardware (temp/PSU)** — physical machines only (skipped on VMs): temperature
   and power-supply sensor health. On Dell servers this parses
   `racadm getsensorinfo` (best-effort; raw output is captured in the report);
@@ -187,16 +194,16 @@ source, event ID, and first line of the message) so you can see the actual
 events on screen, not just the count.
 
 `[5]` also shows the network panel (adapters + default gateway ping + NIC
-teaming + DNS, also on its own via `[N]`), hardware temperature/power, CPU/memory
-faults, and domain time sync. Checks that don't apply to the machine (no teams,
-not domain-joined, a VM) report a short "skipped"/"not available" note instead
-of failing.
+teaming + DNS + network location, also on its own via `[N]`), hardware
+temperature/power, CPU/memory faults, and domain time sync. Checks that don't
+apply to the machine (no teams, not domain-joined, a VM) report a short
+"skipped"/"not available" note instead of failing.
 
 `[E]` writes the summary plus supporting detail tables (disk, physical-disk
-health, network adapters, default gateway, NIC teaming, DNS, listening ports,
-TCP connections by state, hardware sensors, CPU/memory faults, domain time sync,
-stopped services, recent errors, top memory, active sessions) to a timestamped
-file at `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
+health, network adapters, default gateway, NIC teaming, DNS, network location,
+listening ports, TCP connections by state, hardware sensors, CPU/memory faults,
+domain time sync, stopped services, recent errors, top memory, active sessions)
+to a timestamped file at `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
 
 ### Listening ports & connections `[P]`
 
@@ -205,6 +212,25 @@ see what the server exposes and which service owns each port), followed by a
 breakdown of TCP connections by state (Established, TimeWait, etc.) and the
 current established connections (local/remote address + process, up to 15).
 Uses `Get-NetTCPConnection` / `Get-NetUDPEndpoint`.
+
+### Restart / kill a service `[3]`
+
+Resolves a service by exact name or display name and shows its status, start
+type, **PID and owning process**, running dependents, and — when it runs in a
+shared `svchost` — the other services hosted in the same process. Then offers:
+
+- **`[R]` Restart** — normal `Restart-Service -Force` (warns first about running
+  dependents that `-Force` will also bounce).
+- **`[K]` Kill process (force)** — `Stop-Process -Force` for a service stuck in
+  *Stopping*, behind a `Y/N` confirm, then optionally restarts the affected
+  service(s).
+
+The kill path is guarded so it can't crash the box: it **refuses** to kill a
+process hosting a kernel-critical service (e.g. `RpcSs`, `DcomLaunch`, and the
+other services sharing its `svchost`), double-checks the kernel's
+`IsProcessCritical` flag, and re-validates that the PID still belongs to the
+service immediately before killing (guarding against PID reuse). Restart/kill
+require admin; the read-only details display without elevation.
 
 ### Top Resource Users `[2]`
 

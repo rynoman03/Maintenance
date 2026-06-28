@@ -549,6 +549,7 @@ function Show-NetworkStatus {
     Show-GatewayHealth
     Show-NicTeaming
     Show-DnsHealth
+    Show-NetworkLocation
 }
 
 function Get-NicTeamingHealth {
@@ -623,6 +624,55 @@ function Show-DnsHealth {
         Write-Host "  Resolved $($d.Target) -> $($d.Addresses)" -ForegroundColor Green
     } else {
         Write-Host "  FAILED to resolve $($d.Target): $($d.Error)" -ForegroundColor Red
+    }
+}
+
+function Get-NetworkLocationHealth {
+    # Network Location Awareness (NlaSvc) + Network List Service (netprofm) and the
+    # resulting connection-profile category. If NLA misclassifies the network as
+    # 'Public', the Public Windows Firewall profile applies and typically BLOCKS
+    # inbound ICMP/ping - so monitoring (e.g. Nagios) sees the host as down and
+    # other devices cannot ping it. FAIL if NlaSvc is not running; WARN if a
+    # profile is Public or netprofm is stopped.
+    $nla      = Get-Service -Name NlaSvc   -ErrorAction SilentlyContinue
+    $netprofm = Get-Service -Name netprofm -ErrorAction SilentlyContinue
+    $cats = @()
+    if (Get-Command Get-NetConnectionProfile -ErrorAction SilentlyContinue) {
+        try { $cats = @(Get-NetConnectionProfile -ErrorAction Stop | ForEach-Object { $_.NetworkCategory }) } catch { }
+    }
+    $public = @($cats | Where-Object { $_ -eq 'Public' })
+
+    $status = 'OK'
+    $parts  = @()
+    if (-not $nla) {
+        $parts += 'NlaSvc not found'
+    } elseif ($nla.Status -ne 'Running') {
+        $status = 'FAIL'; $parts += "NlaSvc $($nla.Status)"
+    } else {
+        $parts += 'NlaSvc running'
+    }
+    if ($netprofm -and $netprofm.Status -ne 'Running') {
+        if ($status -ne 'FAIL') { $status = 'WARN' }
+        $parts += "netprofm $($netprofm.Status)"
+    }
+    if ($cats.Count -gt 0) {
+        $parts += ('profile: ' + ($cats -join ', '))
+        if ($public.Count -gt 0) {
+            if ($status -eq 'OK') { $status = 'WARN' }
+            $parts += 'Public profile may block inbound ping'
+        }
+    }
+    [PSCustomObject]@{ Status = $status; Detail = ($parts -join '; '); Categories = ($cats -join ', ') }
+}
+
+function Show-NetworkLocation {
+    Write-Header "Network Location (NLA)"
+    $n = Get-NetworkLocationHealth
+    $color = switch ($n.Status) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'DarkGray' } }
+    Write-Host "  [$($n.Status)] $($n.Detail)" -ForegroundColor $color
+    if ($n.Status -ne 'OK') {
+        Write-Host "  Fix: restart Network Location Awareness (NlaSvc) via [3], or correct the firewall profile -" -ForegroundColor DarkGray
+        Write-Host "  a Public profile blocks inbound ICMP so remote pings / Nagios checks fail." -ForegroundColor DarkGray
     }
 }
 
@@ -973,6 +1023,10 @@ function Get-HealthSummary {
         $checks += [PSCustomObject]@{ Name = 'DNS resolution'; Status = $st; Detail = $detail }
     }
 
+    # --- Network location (NLA) - wrong category blocks inbound ping ---
+    $nloc = Get-NetworkLocationHealth
+    $checks += [PSCustomObject]@{ Name = 'Network location'; Status = $nloc.Status; Detail = $nloc.Detail }
+
     # --- Hardware temperature / power (physical only) ---
     $hw = Get-HardwareHealth
     if ($hw -and $hw.Status -in @('OK','WARN','FAIL')) {
@@ -1091,6 +1145,10 @@ function Export-HealthReport {
         if ($null -eq $dn.Resolved) { "  Resolution test: skipped (not domain-joined)" }
         elseif ($dn.Resolved) { "  Resolved $($dn.Target) -> $($dn.Addresses)" }
         else { "  FAILED to resolve $($dn.Target): $($dn.Error)" }
+
+        "`n[NETWORK LOCATION - NLA / firewall profile]"
+        $nlr = Get-NetworkLocationHealth
+        "  [$($nlr.Status)] $($nlr.Detail)"
 
         "`n[LISTENING PORTS]"
         $lpr = Get-ListeningPorts
