@@ -987,8 +987,10 @@ function Get-CertHealth {
     try {
         $serverAuth = '1.3.6.1.5.5.7.3.1'
         $now = Get-Date
+        # Server-auth EKU, or no EKU at all (X.509: a cert with no EKU is valid for any use).
         $certs = @(Get-ChildItem Cert:\LocalMachine\My -ErrorAction Stop | Where-Object {
-            $_.HasPrivateKey -and ($_.EnhancedKeyUsageList.ObjectId -contains $serverAuth)
+            $_.HasPrivateKey -and
+            ($_.EnhancedKeyUsageList.Count -eq 0 -or ($_.EnhancedKeyUsageList.ObjectId -contains $serverAuth))
         })
         if (-not $certs) { return [PSCustomObject]@{ Status='OK'; Detail='no server-auth certs found'; Value=$null; Items=@() } }
         $ranked = $certs | Select-Object Subject, Thumbprint, NotAfter,
@@ -1013,7 +1015,8 @@ function Get-ScheduledTaskHealth {
         if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
             return [PSCustomObject]@{ Status='OK'; Detail='ScheduledTasks module not available'; Value=$null; Items=@() }
         }
-        $benign = @(0, 0x41300, 0x41301, 0x41302, 0x41303, 0x420000)
+        # Benign SCHED_S_* status codes (ready/running/has-not-run/no-more-runs/not-scheduled/queued).
+        $benign = @(0, 0x41300, 0x41301, 0x41303, 0x41304, 0x41305, 0x41325)
         $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.State -ne 'Disabled' })
         if (-not $IncludeMicrosoft) { $tasks = @($tasks | Where-Object { $_.TaskPath -notlike '\Microsoft\*' }) }
         $failed = @()
@@ -1040,12 +1043,17 @@ function Get-SecurityPosture {
     $fails = @(); $warns = @()
     try { if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) {
         $mp = Get-MpComputerStatus -ErrorAction Stop
-        if (-not $mp.RealTimeProtectionEnabled) { $fails += 'Defender real-time protection OFF' }
+        # In passive/EDR mode a third-party AV owns real-time protection - don't fault Defender.
+        if ($mp.AMRunningMode -and $mp.AMRunningMode -ne 'Normal') {
+            # protected by another AV; no Defender RTP/sig-age finding
+        } elseif (-not $mp.RealTimeProtectionEnabled) { $fails += 'Defender real-time protection OFF' }
         elseif ($mp.AntivirusSignatureAge -gt 3) { $warns += "AV signatures $($mp.AntivirusSignatureAge)d old" }
-    } } catch {}
+    } else { $warns += 'AV state unknown (Defender cmdlets absent)' } } catch {}
     try { if (Get-Command Get-NetFirewallProfile -ErrorAction SilentlyContinue) {
-        $off = @(Get-NetFirewallProfile -ErrorAction Stop | Where-Object { -not $_.Enabled } | Select-Object -ExpandProperty Name)
-        if ($off.Count -gt 0) { $warns += "firewall off: $($off -join ',')" }
+        # Only flag when EVERY profile is off (a single intentionally-disabled profile is normal).
+        $profs = @(Get-NetFirewallProfile -ErrorAction Stop)
+        $off = @($profs | Where-Object { -not $_.Enabled })
+        if ($profs.Count -gt 0 -and $off.Count -eq $profs.Count) { $fails += 'Windows Firewall OFF (all profiles)' }
     } } catch {}
     try { if (Get-Command Get-SmbServerConfiguration -ErrorAction SilentlyContinue) {
         if ((Get-SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol) { $fails += 'SMBv1 enabled' }
@@ -1262,8 +1270,10 @@ function Export-HealthReport {
 
     if (-not (Test-Path $outDir)) { New-Item -ItemType Directory $outDir | Out-Null }
 
-    $summary = Get-HealthSummary
-    $overall = if ($summary.Status -contains 'FAIL') { 'FAIL' }
+    $summary = @(Get-HealthSummary)
+    $overall = if (@($summary).Count -eq 0) { 'UNKNOWN' }
+               elseif ($summary.Status -contains 'FAIL') { 'FAIL' }
+               elseif ($summary.Status -contains 'ERROR') { 'UNKNOWN' }
                elseif ($summary.Status -contains 'WARN') { 'WARN' }
                else { 'OK' }
 
@@ -1400,7 +1410,7 @@ function Export-HealthReport {
     Write-HealthSummary $summary
     Write-Host ""
     Write-Host "  Overall: $overall" -ForegroundColor $(
-        switch ($overall) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } })
+        switch ($overall) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'Magenta' } })
     Write-Host "  Report saved to: $outFile" -ForegroundColor Cyan
     Write-Host "  Size: $([math]::Round((Get-Item $outFile).Length / 1KB, 1)) KB" -ForegroundColor DarkCyan
 }
@@ -1561,9 +1571,10 @@ function Show-AdminMenu {
         Write-Host " to reopen." -ForegroundColor DarkGray
 
         $choice = Read-Host "`n  Select an option"
+        if ($null -eq $choice) { return }   # input stream closed / non-interactive - bail, don't loop
 
         $ranTask = $true
-        switch ($choice.ToUpper()) {
+        switch (([string]$choice).ToUpper()) {
             '1' { Get-DiskSpace -IncludeTopFiles }
             '2' { Get-TopResourceUsers }
             '3' { Restart-ServiceByName }
@@ -1604,11 +1615,13 @@ function Show-AdminMenu {
 #  Run as a script with -RunCheck -> non-interactive health check + exit code.
 # ---------------------------------------------------------------------------
 if ($RunCheck) {
-    $summary = Get-HealthSummary
-    $overall = if ($summary.Status -contains 'FAIL')       { 'FAIL' }
-               elseif ($summary.Status -contains 'ERROR')  { 'UNKNOWN' }
-               elseif ($summary.Status -contains 'WARN')   { 'WARN' }
-               else                                        { 'OK' }
+    # 6>$null guards JSON/stdout against any stray Write-Host from a future probe.
+    $summary = @(Get-HealthSummary 6>$null)
+    $overall = if (@($summary).Count -eq 0)               { 'UNKNOWN' }   # check engine produced nothing
+               elseif ($summary.Status -contains 'FAIL')  { 'FAIL' }
+               elseif ($summary.Status -contains 'ERROR') { 'UNKNOWN' }
+               elseif ($summary.Status -contains 'WARN')  { 'WARN' }
+               else                                       { 'OK' }
 
     if ($AsJson) {
         [PSCustomObject]@{
@@ -1626,6 +1639,12 @@ if ($RunCheck) {
     $code = switch ($overall) { 'OK' {0} 'WARN' {1} 'FAIL' {2} default {3} }
     # Only 'exit' when actually run as a script; never kill a shell that dot-sourced us.
     if ($MyInvocation.InvocationName -ne '.') { exit $code }
-} else {
+}
+elseif ([Environment]::UserInteractive -and $Host.Name -eq 'ConsoleHost' -and
+        -not [Console]::IsInputRedirected -and
+        ([Environment]::GetCommandLineArgs() -notcontains '-NonInteractive')) {
+    # Launch the menu ONLY in a real interactive console. Skipping it in remoting /
+    # Invoke-Command / -NonInteractive / piped-stdin / scheduled-task sessions keeps the
+    # menu's Read-Host from hanging or spinning when this loads as the AllUsers profile.
     Show-AdminMenu
 }
