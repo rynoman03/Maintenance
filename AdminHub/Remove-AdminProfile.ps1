@@ -51,7 +51,7 @@ foreach ($computer in $ComputerName) {
                 "\\$computer\Admin$"
             }
     if ($root -like '\\*' -and -not (Test-Path $root)) {
-        Write-Warning "Cannot reach $root — skipping"
+        Write-Warning "Cannot reach $root - skipping"
         continue
     }
     Remove-FromLocal -Root $root

@@ -53,7 +53,7 @@ function Deploy-ToLocal {
         $dir  = Split-Path $dest
 
         if (-not (Test-Path $dir)) {
-            Write-Verbose "Skipping $dest (directory not found — PowerShell version not installed)"
+            Write-Verbose "Skipping $dest (directory not found - PowerShell version not installed)"
             continue
         }
 
@@ -69,15 +69,15 @@ function Deploy-ToLocal {
         if (Test-Path $dest) {
             $backup = "$dest.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
             Copy-Item $dest $backup
-            Write-Host "  Backed up existing profile → $backup" -ForegroundColor DarkYellow
+            Write-Host "  Backed up existing profile -> $backup" -ForegroundColor DarkYellow
         }
 
         Copy-Item $ProfileSourcePath $dest -Force
-        Write-Host "  Deployed → $dest" -ForegroundColor Green
+        Write-Host "  Deployed -> $dest" -ForegroundColor Green
     }
 }
 
-# ── Validate source ────────────────────────────────────────────────────────────
+# -- Validate source ------------------------------------------------------------
 if (-not (Test-Path $ProfileSourcePath)) {
     Write-Error "Source profile not found: $ProfileSourcePath"
     exit 1
@@ -93,7 +93,7 @@ foreach ($computer in $ComputerName) {
         # Remote deployment via admin share (\\SERVER\Admin$)
         $adminShare = "\\$computer\Admin$"
         if (-not (Test-Path $adminShare)) {
-            Write-Warning "Cannot reach admin share $adminShare — skipping $computer"
+            Write-Warning "Cannot reach admin share $adminShare - skipping $computer"
             continue
         }
         Deploy-ToLocal -Root $adminShare
