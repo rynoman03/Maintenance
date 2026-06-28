@@ -100,13 +100,14 @@ it is drawn.
 
 ### Disk space `[1]`
 
-Shows used/free/total per filesystem drive, then the **top 5 largest files on
-each fixed drive** (with full path) to help track down what's filling a volume.
-Finding the largest files means walking the whole drive, so this can take a
-while on large volumes — it uses a streaming top-N scan (only the current 5 are
-held in memory) and skips paths it can't read. This file scan runs only from the
-`[1]` menu option; the same disk-space summary inside the health check `[5]`
-stays fast and does not scan files.
+Shows used/free/total per filesystem drive, then offers to list the **top 5
+largest files on each fixed drive** (with full path) to help track down what's
+filling a volume. Because finding the largest files means walking the whole
+drive, it first asks `Y/N` (it can be slow on large volumes); answer `Y` to
+scan. It uses a streaming top-N scan (only the current 5 are held in memory) and
+skips paths it can't read. This file scan runs only from the `[1]` menu option;
+the same disk-space summary inside the health check `[5]` stays fast and never
+scans files.
 
 ### Health checks
 

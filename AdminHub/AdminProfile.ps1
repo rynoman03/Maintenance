@@ -184,6 +184,11 @@ function Get-DiskSpace {
         Format-Table -AutoSize
 
     if ($IncludeTopFiles) {
+        $ans = Read-Host "`n  Scan drives for the $Top largest files? Can be slow on large volumes [Y/N]"
+        if ($ans -notmatch '^[Yy]') {
+            Write-Host "  Skipped largest-file scan." -ForegroundColor Yellow
+            return
+        }
         # Only scan fixed local disks (DriveType 3) - never network/removable.
         $fixed = Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue
         foreach ($d in $fixed) {
