@@ -21,7 +21,20 @@
     remove scripts) with an Authenticode code-signing certificate so it runs
     under the AllSigned policy. Sign LAST - any later edit breaks the signature.
     See the "Code signing" section of README.md for full instructions.
+
+    Non-interactive use: dot-sourced as a profile it shows the menu, but it can
+    also be run as a script for monitoring:
+        powershell -NoProfile -File AdminProfile.ps1 -RunCheck            # text + exit code
+        powershell -NoProfile -File AdminProfile.ps1 -RunCheck -AsJson    # JSON for Nagios/Zabbix/Prometheus
+        powershell -NoProfile -File AdminProfile.ps1 -RunCheck -Quiet     # exit code only
+    Exit codes follow the Nagios convention: 0=OK, 1=WARN, 2=FAIL(CRITICAL), 3=UNKNOWN.
 #>
+
+param(
+    [switch]$RunCheck,   # run the health check non-interactively, then exit with a status code
+    [switch]$AsJson,     # with -RunCheck: emit one JSON object instead of the colored text summary
+    [switch]$Quiet       # with -RunCheck: suppress the summary text (exit code only)
+)
 
 # ===========================================================================
 #  CONFIG - Banner
@@ -967,9 +980,95 @@ function Show-PortsConnections {
     }
 }
 
+function Get-CertHealth {
+    # Server-authentication certificates in LocalMachine\My expiring soon.
+    # WARN within $WarnDays, FAIL expired or within $FailDays. Internally guarded.
+    param([int]$WarnDays = 30, [int]$FailDays = 7)
+    try {
+        $serverAuth = '1.3.6.1.5.5.7.3.1'
+        $now = Get-Date
+        $certs = @(Get-ChildItem Cert:\LocalMachine\My -ErrorAction Stop | Where-Object {
+            $_.HasPrivateKey -and ($_.EnhancedKeyUsageList.ObjectId -contains $serverAuth)
+        })
+        if (-not $certs) { return [PSCustomObject]@{ Status='OK'; Detail='no server-auth certs found'; Value=$null; Items=@() } }
+        $ranked = $certs | Select-Object Subject, Thumbprint, NotAfter,
+            @{N='DaysLeft'; E={ [int][math]::Floor((($_.NotAfter) - $now).TotalDays) }} | Sort-Object DaysLeft
+        $soonest = $ranked[0]
+        $expiring = @($ranked | Where-Object { $_.DaysLeft -lt $WarnDays })
+        $st = if ($soonest.DaysLeft -lt $FailDays) { 'FAIL' } elseif ($expiring.Count -gt 0) { 'WARN' } else { 'OK' }
+        $detail = if ($expiring.Count -gt 0) {
+            "$($expiring.Count) expiring; soonest: $($soonest.Subject) ($($soonest.DaysLeft)d)"
+        } else { "$($certs.Count) server-auth cert(s), none within ${WarnDays}d (soonest $($soonest.DaysLeft)d)" }
+        [PSCustomObject]@{ Status=$st; Detail=$detail; Value=$soonest.DaysLeft; Items=$ranked }
+    } catch {
+        [PSCustomObject]@{ Status='ERROR'; Detail="cert scan failed: $($_.Exception.Message)"; Value=$null; Items=@() }
+    }
+}
+
+function Get-ScheduledTaskHealth {
+    # Non-Microsoft scheduled tasks whose last run failed. Benign status codes
+    # (ready/running/queued/disabled/not-yet-run) are excluded. Internally guarded.
+    param([switch]$IncludeMicrosoft)
+    try {
+        if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+            return [PSCustomObject]@{ Status='OK'; Detail='ScheduledTasks module not available'; Value=$null; Items=@() }
+        }
+        $benign = @(0, 0x41300, 0x41301, 0x41302, 0x41303, 0x420000)
+        $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.State -ne 'Disabled' })
+        if (-not $IncludeMicrosoft) { $tasks = @($tasks | Where-Object { $_.TaskPath -notlike '\Microsoft\*' }) }
+        $failed = @()
+        foreach ($t in $tasks) {
+            $info = $t | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+            if ($info -and ($benign -notcontains $info.LastTaskResult)) {
+                $failed += [PSCustomObject]@{ Task=$t.TaskName; Path=$t.TaskPath
+                    LastRun=$info.LastRunTime; Result=('0x{0:X}' -f $info.LastTaskResult) }
+            }
+        }
+        $st = if ($failed.Count -gt 0) { 'WARN' } else { 'OK' }
+        $detail = if ($failed.Count -gt 0) {
+            "$($failed.Count) task(s) failed last run: " + (($failed | Select-Object -First 5 -ExpandProperty Task) -join ', ')
+        } else { 'no failed non-Microsoft tasks' }
+        [PSCustomObject]@{ Status=$st; Detail=$detail; Value=$failed.Count; Items=$failed }
+    } catch {
+        [PSCustomObject]@{ Status='ERROR'; Detail="task scan failed: $($_.Exception.Message)"; Value=$null; Items=@() }
+    }
+}
+
+function Get-SecurityPosture {
+    # Read-only posture: Defender RTP/sig-age, firewall profiles, SMBv1, BitLocker
+    # (physical), UAC. Each probe is guarded so a missing cmdlet never throws.
+    $fails = @(); $warns = @()
+    try { if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) {
+        $mp = Get-MpComputerStatus -ErrorAction Stop
+        if (-not $mp.RealTimeProtectionEnabled) { $fails += 'Defender real-time protection OFF' }
+        elseif ($mp.AntivirusSignatureAge -gt 3) { $warns += "AV signatures $($mp.AntivirusSignatureAge)d old" }
+    } } catch {}
+    try { if (Get-Command Get-NetFirewallProfile -ErrorAction SilentlyContinue) {
+        $off = @(Get-NetFirewallProfile -ErrorAction Stop | Where-Object { -not $_.Enabled } | Select-Object -ExpandProperty Name)
+        if ($off.Count -gt 0) { $warns += "firewall off: $($off -join ',')" }
+    } } catch {}
+    try { if (Get-Command Get-SmbServerConfiguration -ErrorAction SilentlyContinue) {
+        if ((Get-SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol) { $fails += 'SMBv1 enabled' }
+    } } catch {}
+    try { if ((-not (Test-IsVirtual)) -and (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)) {
+        $bl = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop
+        if ($bl -and $bl.ProtectionStatus -ne 'On') { $warns += "BitLocker off ($env:SystemDrive)" }
+    } } catch {}
+    try {
+        $lua = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name EnableLUA -ErrorAction Stop).EnableLUA
+        if ($lua -ne 1) { $fails += 'UAC disabled' }
+    } catch {}
+    $st = if ($fails.Count -gt 0) { 'FAIL' } elseif ($warns.Count -gt 0) { 'WARN' } else { 'OK' }
+    $detail = (@($fails) + @($warns)) -join '; '
+    if (-not $detail) { $detail = 'Defender/firewall/SMBv1/UAC all OK' }
+    [PSCustomObject]@{ Status=$st; Detail=$detail; Value=($fails.Count + $warns.Count); Items=(@($fails)+@($warns)) }
+}
+
 function Get-HealthSummary {
-    # Returns an ordered list of health checks, each with Status (OK/WARN/FAIL)
-    # and a short Detail string. Shared by the on-screen check and the report.
+    # Returns an ordered list of health checks (Name/Status/Detail/Value). A
+    # function-scope trap keeps one failing check from aborting the whole summary.
+    # Shared by the on-screen check, the report, and the -RunCheck path.
+    trap { continue }
     $checks = @()
 
     # --- Disk space (worst fixed drive) ---
@@ -981,7 +1080,7 @@ function Get-HealthSummary {
         if ($pct -gt $worstPct) { $worstPct = $pct; $worst = $d.Name }
     }
     $st = if ($worstPct -ge 90) { 'FAIL' } elseif ($worstPct -ge 80) { 'WARN' } else { 'OK' }
-    $checks += [PSCustomObject]@{ Name = 'Disk space'; Status = $st; Detail = "highest used: ${worst}: ${worstPct}%" }
+    $checks += [PSCustomObject]@{ Name = 'Disk space'; Status = $st; Detail = "highest used: ${worst}: ${worstPct}%"; Value = $worstPct }
 
     # --- Pending reboot ---
     $rb = Test-PendingReboot
@@ -1039,7 +1138,7 @@ function Get-HealthSummary {
     if ($os -and $os.TotalVisibleMemorySize -gt 0) {
         $memPct = [math]::Round((1 - $os.FreePhysicalMemory / $os.TotalVisibleMemorySize) * 100, 0)
         $st = if ($memPct -ge 95) { 'FAIL' } elseif ($memPct -ge 85) { 'WARN' } else { 'OK' }
-        $checks += [PSCustomObject]@{ Name = 'Memory'; Status = $st; Detail = "${memPct}% used" }
+        $checks += [PSCustomObject]@{ Name = 'Memory'; Status = $st; Detail = "${memPct}% used"; Value = $memPct }
     }
 
     # --- Pagefile utilization ---
@@ -1047,7 +1146,7 @@ function Get-HealthSummary {
     if ($pf -and $pf.AllocatedBaseSize -gt 0) {
         $pfPct = [math]::Round($pf.CurrentUsage / $pf.AllocatedBaseSize * 100, 0)
         $st = if ($pfPct -ge 95) { 'FAIL' } elseif ($pfPct -ge 80) { 'WARN' } else { 'OK' }
-        $checks += [PSCustomObject]@{ Name = 'Pagefile'; Status = $st; Detail = "${pfPct}% used" }
+        $checks += [PSCustomObject]@{ Name = 'Pagefile'; Status = $st; Detail = "${pfPct}% used"; Value = $pfPct }
     }
 
     # --- Recent error events (System log, last 24h) ---
@@ -1113,6 +1212,18 @@ function Get-HealthSummary {
     if ($time) {
         $checks += [PSCustomObject]@{ Name = 'Time sync'; Status = $time.Status; Detail = $time.Detail }
     }
+
+    # --- Certificate expiry (server-auth certs in LocalMachine\My) ---
+    $cert = Get-CertHealth
+    $checks += [PSCustomObject]@{ Name = 'Certificate expiry'; Status = $cert.Status; Detail = $cert.Detail; Value = $cert.Value }
+
+    # --- Failed scheduled tasks (non-Microsoft) ---
+    $tasks = Get-ScheduledTaskHealth
+    $checks += [PSCustomObject]@{ Name = 'Scheduled tasks'; Status = $tasks.Status; Detail = $tasks.Detail; Value = $tasks.Value }
+
+    # --- Security posture (Defender/firewall/SMBv1/BitLocker/UAC) ---
+    $sec = Get-SecurityPosture
+    $checks += [PSCustomObject]@{ Name = 'Security posture'; Status = $sec.Status; Detail = $sec.Detail; Value = $sec.Value }
 
     # --- Listening ports / connections (informational) ---
     $lp = Get-ListeningPorts
@@ -1245,6 +1356,23 @@ function Export-HealthReport {
         $tsr = Get-TimeSyncHealth
         if ($null -eq $tsr) { "  (skipped - not domain-joined)`n" }
         else { "  [$($tsr.Status)] $($tsr.Detail)" }
+
+        "`n[CERTIFICATE EXPIRY - server-auth, LocalMachine\My]"
+        $cr = Get-CertHealth
+        "  [$($cr.Status)] $($cr.Detail)"
+        if ($cr.Items) {
+            $cr.Items | Select-Object -First 10 Subject, Thumbprint,
+                @{N='NotAfter';E={$_.NotAfter}}, DaysLeft | Format-Table -AutoSize | Out-String
+        }
+
+        "`n[FAILED SCHEDULED TASKS - non-Microsoft]"
+        $sk = Get-ScheduledTaskHealth
+        "  [$($sk.Status)] $($sk.Detail)"
+        if ($sk.Items) { $sk.Items | Format-Table Task, Path, LastRun, Result -AutoSize | Out-String }
+
+        "`n[SECURITY POSTURE]"
+        $sp = Get-SecurityPosture
+        "  [$($sp.Status)] $($sp.Detail)"
 
         "`n[RECENT SYSTEM ERRORS - last 24h]"
         $ev = Get-RecentSystemErrors -Hours 24 -Max 20 |
@@ -1471,4 +1599,33 @@ function Show-AdminMenu {
     }
 }
 
-Show-AdminMenu
+# ---------------------------------------------------------------------------
+#  Entry point. Dot-sourced as a profile (no params) -> interactive menu.
+#  Run as a script with -RunCheck -> non-interactive health check + exit code.
+# ---------------------------------------------------------------------------
+if ($RunCheck) {
+    $summary = Get-HealthSummary
+    $overall = if ($summary.Status -contains 'FAIL')       { 'FAIL' }
+               elseif ($summary.Status -contains 'ERROR')  { 'UNKNOWN' }
+               elseif ($summary.Status -contains 'WARN')   { 'WARN' }
+               else                                        { 'OK' }
+
+    if ($AsJson) {
+        [PSCustomObject]@{
+            host      = $env:COMPUTERNAME
+            timestamp = (Get-Date).ToUniversalTime().ToString('o')
+            overall   = $overall
+            checks    = @($summary | Select-Object Name, Status, Detail, Value)
+        } | ConvertTo-Json -Depth 5 -Compress
+    } elseif (-not $Quiet) {
+        Write-HealthSummary $summary
+        Write-Host "`n  Overall: $overall" -ForegroundColor $(
+            switch ($overall) { 'OK' {'Green'} 'WARN' {'Yellow'} 'FAIL' {'Red'} default {'Magenta'} })
+    }
+
+    $code = switch ($overall) { 'OK' {0} 'WARN' {1} 'FAIL' {2} default {3} }
+    # Only 'exit' when actually run as a script; never kill a shell that dot-sourced us.
+    if ($MyInvocation.InvocationName -ne '.') { exit $code }
+} else {
+    Show-AdminMenu
+}
