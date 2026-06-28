@@ -592,6 +592,11 @@ it under `PSModulePath`, its commands **autoload in any session — including
 (no profile required in remoting). The profile shim only adds the
 auto-show-the-menu-on-console behavior on top.
 
+To open the menu on a remote server in **one step** from your own console, use
+`Enter-AdminSession <server>` (it runs the menu in a remote session via
+`Invoke-Command`; add `-Credential` for cross-domain). The target must have the
+module deployed and WinRM/PSRemoting enabled.
+
 ## Monitoring / non-interactive use
 
 Dot-sourced as a profile, AdminHub shows the menu **only in an interactive

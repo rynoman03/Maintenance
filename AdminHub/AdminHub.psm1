@@ -1644,12 +1644,15 @@ function Invoke-AdminHubCheck {
                elseif ($summary.Status -contains 'WARN')  { 'WARN' }
                else                                       { 'OK' }
     if ($AsJson) {
-        [PSCustomObject]@{
+        $json = [PSCustomObject]@{
             host      = $env:COMPUTERNAME
             timestamp = (Get-Date).ToUniversalTime().ToString('o')
             overall   = $overall
             checks    = @($summary | Select-Object Name, Status, Detail, Value)
         } | ConvertTo-Json -Depth 5 -Compress
+        # Write directly to stdout so the JSON is NOT captured as the function's
+        # return value - the ONLY pipeline output must be the integer status code.
+        [Console]::Out.WriteLine($json)
     } elseif (-not $Quiet) {
         Write-HealthSummary $summary
         Write-Host "`n  Overall: $overall" -ForegroundColor $(
@@ -1658,5 +1661,36 @@ function Invoke-AdminHubCheck {
     switch ($overall) { 'OK' {0} 'WARN' {1} 'FAIL' {2} default {3} }
 }
 
+function Enter-AdminSession {
+    # Open the AdminHub menu on a REMOTE server in one step: runs Show-AdminMenu in
+    # a remote session (the module autoloads there if it has been deployed). Requires
+    # WinRM/PSRemoting and rights on the target. Use -Credential for cross-domain.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)][string]$ComputerName,
+        [pscredential]$Credential
+    )
+    $p = @{ ComputerName = $ComputerName; ScriptBlock = {
+        if (-not (Get-Command Show-AdminMenu -ErrorAction SilentlyContinue)) {
+            Write-Host "AdminHub is not installed on $env:COMPUTERNAME. Deploy it there first." -ForegroundColor Yellow
+            return
+        }
+        Show-AdminMenu
+    } }
+    if ($Credential) { $p.Credential = $Credential }
+    try { Invoke-Command @p }
+    catch { Write-Host "Could not open a session to ${ComputerName}: $($_.Exception.Message)" -ForegroundColor Red }
+}
+
 Set-Alias -Name adminhub -Value Show-AdminMenu
-Export-ModuleMember -Function * -Alias adminhub
+
+# Explicit public surface (no 'prompt' - exporting it would hijack the caller's
+# prompt, including inside Enter-PSSession). Listed here AND in the manifest so the
+# surface is correct even if the .psm1 is imported directly.
+Export-ModuleMember -Alias adminhub -Function `
+    Show-AdminMenu, Invoke-SystemHealthCheck, Get-HealthSummary, Export-HealthReport,
+    Invoke-AdminHubCheck, Enter-AdminSession, Get-DiskSpace, Get-TopResourceUsers,
+    Get-TopMemory, Get-SwapUsage, Get-ActiveSessions, Show-LogTail, Show-NetworkStatus,
+    Show-PortsConnections, Show-NetworkLocation, Restart-ServiceByName, Invoke-DiskCleanup,
+    Get-PendingUpdates, Show-RecentSystemErrors, Show-HardwareHealth, Show-CpuMemoryFaults,
+    Show-TimeSync

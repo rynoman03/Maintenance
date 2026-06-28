@@ -46,7 +46,8 @@ $ModuleSourceDir = $PSScriptRoot
 $ModuleFiles     = @('AdminHub.psm1', 'AdminHub.psd1')
 
 # Module folders per edition (PS 5.x: WindowsPowerShell\Modules; PS 7: PowerShell\Modules).
-# Remote via C$. Each is installed only if that edition's tree is present.
+# Each is installed only if that edition is present. NOTE: remote targets assume
+# Program Files is on C: (standard). Remove-AdminProfile.ps1 uses identical paths.
 function Get-ModuleTargets {
     param([string]$Computer)
     if ($Computer -eq $env:COMPUTERNAME -or $Computer -eq 'localhost') {
@@ -78,11 +79,14 @@ function Get-ProfileTargets {
 
 function Install-AdminHubModule {
     param([string]$ModuleDir)
-    # Only install for an edition that is present (its parent ...\<edition> root exists).
-    $editionRoot = Split-Path (Split-Path $ModuleDir)   # ...\WindowsPowerShell or ...\PowerShell
-    if (-not (Test-Path $editionRoot)) {
-        Write-Verbose "Skipping module at $ModuleDir (PowerShell edition not present)"
-        return
+    # Windows PowerShell 5.1 is always present -> install unconditionally. The PS7
+    # path (...\PowerShell\Modules\...) is installed only if PowerShell 7 is present.
+    if ($ModuleDir -match '\\PowerShell\\Modules\\AdminHub$') {
+        $ps7 = Join-Path (Split-Path (Split-Path $ModuleDir)) '7\pwsh.exe'   # ...\PowerShell\7\pwsh.exe
+        if (-not (Test-Path $ps7)) {
+            Write-Verbose "Skipping PS7 module at $ModuleDir (PowerShell 7 not installed)"
+            return
+        }
     }
     if (-not (Test-Path $ModuleDir)) { New-Item -ItemType Directory -Path $ModuleDir -Force | Out-Null }
     foreach ($f in $ModuleFiles) {
@@ -108,11 +112,15 @@ function Deploy-ToPath {
         }
     }
 
-    # Backup existing profile
+    # Back up a pre-existing profile, but only if it is NOT already an AdminHub
+    # shim - so repeated deploys don't pile up identical backups.
     if (Test-Path $Dest) {
-        $backup = "$Dest.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-        Copy-Item $Dest $backup
-        Write-Host "  Backed up existing profile -> $backup" -ForegroundColor DarkYellow
+        $existing = Get-Content $Dest -Raw -ErrorAction SilentlyContinue
+        if ($existing -notmatch 'AdminHub') {
+            $backup = "$Dest.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+            Copy-Item $Dest $backup -Force
+            Write-Host "  Backed up existing profile -> $backup" -ForegroundColor DarkYellow
+        }
     }
 
     Copy-Item $ProfileSourcePath $Dest -Force

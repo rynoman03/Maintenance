@@ -37,13 +37,16 @@ try {
     else                  { Import-Module AdminHub  -ErrorAction Stop }
 } catch {
     Write-Host "AdminHub module failed to load: $($_.Exception.Message)" -ForegroundColor Yellow
+    # In monitoring mode a missing/broken module is UNKNOWN(3), not a silent OK(0).
+    if ($RunCheck -and $MyInvocation.InvocationName -ne '.') { exit 3 }
     return
 }
 
 if ($RunCheck) {
     $code = Invoke-AdminHubCheck -AsJson:$AsJson -Quiet:$Quiet
     # Only 'exit' when actually run as a script; never kill a shell that dot-sourced us.
-    if ($MyInvocation.InvocationName -ne '.') { exit $code }
+    # [int] cast guards against a non-scalar slipping through.
+    if ($MyInvocation.InvocationName -ne '.') { exit ([int]($code | Select-Object -Last 1)) }
 }
 elseif ([Environment]::UserInteractive -and $Host.Name -eq 'ConsoleHost' -and
         -not [Console]::IsInputRedirected -and
