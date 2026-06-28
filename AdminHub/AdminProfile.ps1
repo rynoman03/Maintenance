@@ -376,6 +376,7 @@ function Show-NetworkStatus {
             Write-Host "  No discards or errors on any connected adapter." -ForegroundColor Green
         }
     }
+    Show-GatewayHealth
     Show-NicTeaming
     Show-DnsHealth
 }
@@ -522,6 +523,84 @@ function Show-TimeSync {
     Write-Host "  [$($t.Status)] $($t.Detail)" -ForegroundColor $color
 }
 
+function Get-GatewayHealth {
+    # Default IPv4 gateway(s) for connected adapters, each with an ICMP ping test.
+    # Returns an empty array when no default gateway is configured.
+    $list = @()
+    if (Get-Command Get-NetIPConfiguration -ErrorAction SilentlyContinue) {
+        try {
+            $list = @(Get-NetIPConfiguration -ErrorAction Stop | Where-Object { $_.IPv4DefaultGateway } |
+                ForEach-Object { [PSCustomObject]@{ Interface = $_.InterfaceAlias; Gateway = $_.IPv4DefaultGateway.NextHop } })
+        } catch {}
+    }
+    if (-not $list) {
+        try {
+            $list = @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=TRUE' -ErrorAction Stop |
+                Where-Object { $_.DefaultIPGateway } |
+                ForEach-Object { [PSCustomObject]@{ Interface = $_.Description; Gateway = $_.DefaultIPGateway[0] } })
+        } catch {}
+    }
+    $seen = @{}
+    foreach ($g in $list) {
+        if (-not $g.Gateway -or $seen.ContainsKey($g.Gateway)) { continue }
+        $seen[$g.Gateway] = $true
+        $ok = $false
+        try { $ok = [bool](Test-Connection $g.Gateway -Count 2 -Quiet -ErrorAction Stop) } catch { $ok = $false }
+        [PSCustomObject]@{ Interface = $g.Interface; Gateway = $g.Gateway; Reachable = $ok }
+    }
+}
+
+function Show-GatewayHealth {
+    Write-Header "Default Gateway"
+    $gws = Get-GatewayHealth
+    if (-not $gws) { Write-Host "  No default gateway configured." -ForegroundColor DarkGray; return }
+    foreach ($g in $gws) {
+        if ($g.Reachable) {
+            Write-Host ("  [OK]   {0} via {1} - reachable" -f $g.Gateway, $g.Interface) -ForegroundColor Green
+        } else {
+            Write-Host ("  [FAIL] {0} via {1} - NO RESPONSE" -f $g.Gateway, $g.Interface) -ForegroundColor Red
+        }
+    }
+}
+
+function Get-CpuMemoryFaults {
+    # Hardware CPU/memory faults from WHEA machine-check / ECC events in the System
+    # log (corrected -> WARN, uncorrected -> FAIL), plus any processor reporting a
+    # non-OK status. Safe on VMs (they simply have no WHEA events).
+    $whea = @()
+    try {
+        $whea = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger' } -MaxEvents 50 -ErrorAction Stop)
+    } catch {}
+    $cpuBad = @()
+    try {
+        $cpuBad = @(Get-CimInstance Win32_Processor -ErrorAction Stop |
+            Where-Object { $_.Status -and $_.Status -ne 'OK' } |
+            ForEach-Object { "$($_.DeviceID)=$($_.Status)" })
+    } catch {}
+    $uncorrected = @($whea | Where-Object { $_.Level -in 1, 2 })
+    $status = if ($uncorrected -or $cpuBad) { 'FAIL' } elseif ($whea) { 'WARN' } else { 'OK' }
+    $parts = @()
+    if ($whea)   { $parts += "$(@($whea).Count) WHEA event(s) ($(@($uncorrected).Count) uncorrected)" }
+    if ($cpuBad) { $parts += "CPU status: $($cpuBad -join ', ')" }
+    if (-not $parts) { $parts += 'no WHEA hardware errors; CPU status OK' }
+    [PSCustomObject]@{
+        Status = $status
+        Detail = ($parts -join '; ')
+        Recent = @($whea | Select-Object -First 5 | ForEach-Object { "{0} {1} (id {2})" -f $_.TimeCreated.ToString('MM-dd HH:mm'), $_.LevelDisplayName, $_.Id })
+    }
+}
+
+function Show-CpuMemoryFaults {
+    Write-Header "CPU / Memory Faults"
+    $f = Get-CpuMemoryFaults
+    $color = switch ($f.Status) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'DarkGray' } }
+    Write-Host "  [$($f.Status)] $($f.Detail)" -ForegroundColor $color
+    if ($f.Recent) {
+        Write-Host "  Recent WHEA events:" -ForegroundColor DarkGray
+        $f.Recent | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    }
+}
+
 function Get-HealthSummary {
     # Returns an ordered list of health checks, each with Status (OK/WARN/FAIL)
     # and a short Detail string. Shared by the on-screen check and the report.
@@ -621,6 +700,16 @@ function Get-HealthSummary {
             Detail = ("{0} up; errors: {1}, discards: {2} (since boot)" -f @($nics).Count, $netErr, $netDisc) }
     }
 
+    # --- Default gateway reachability (ICMP ping) ---
+    $gw = Get-GatewayHealth
+    if ($gw) {
+        $down = @($gw | Where-Object { -not $_.Reachable })
+        $st = if ($down) { 'FAIL' } else { 'OK' }
+        $detail = if ($down) { "unreachable: " + (($down | ForEach-Object { $_.Gateway }) -join ', ') }
+                  else { "reachable: " + (($gw | ForEach-Object { $_.Gateway }) -join ', ') }
+        $checks += [PSCustomObject]@{ Name = 'Default gateway'; Status = $st; Detail = $detail }
+    }
+
     # --- NIC teaming (degraded = not Up or fewer active members than configured) ---
     $teams = Get-NicTeamingHealth
     if ($teams) {
@@ -644,6 +733,10 @@ function Get-HealthSummary {
     if ($hw -and $hw.Status -in @('OK','WARN','FAIL')) {
         $checks += [PSCustomObject]@{ Name = 'Hardware (temp/PSU)'; Status = $hw.Status; Detail = "$($hw.Detail) [$($hw.Source)]" }
     }
+
+    # --- CPU / memory hardware faults (WHEA machine-check / ECC) ---
+    $cmf = Get-CpuMemoryFaults
+    $checks += [PSCustomObject]@{ Name = 'CPU/memory faults'; Status = $cmf.Status; Detail = $cmf.Detail }
 
     # --- Domain time drift ---
     $time = Get-TimeSyncHealth
@@ -725,6 +818,11 @@ function Export-HealthReport {
         if ($nic) { $nic | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize | Out-String }
         else { "  (Get-NetAdapter unavailable or no connected adapters)`n" }
 
+        "`n[DEFAULT GATEWAY]"
+        $gwr = Get-GatewayHealth
+        if ($gwr) { $gwr | Format-Table Interface, Gateway, Reachable -AutoSize | Out-String }
+        else { "  (no default gateway configured)`n" }
+
         "`n[NIC TEAMING]"
         $tm = Get-NicTeamingHealth
         if ($null -eq $tm) { "  (LBFO not available)`n" }
@@ -742,6 +840,11 @@ function Export-HealthReport {
         $hwr = Get-HardwareHealth
         if ($null -eq $hwr) { "  (skipped - virtual machine)`n" }
         else { "  [$($hwr.Status)] $($hwr.Detail) (source: $($hwr.Source))"; if ($hwr.Raw) { $hwr.Raw } }
+
+        "`n[CPU / MEMORY FAULTS - WHEA]"
+        $cmr = Get-CpuMemoryFaults
+        "  [$($cmr.Status)] $($cmr.Detail)"
+        if ($cmr.Recent) { $cmr.Recent | ForEach-Object { "    $_" } }
 
         "`n[DOMAIN TIME SYNC]"
         $tsr = Get-TimeSyncHealth
@@ -785,6 +888,7 @@ function Invoke-SystemHealthCheck {
     Get-TopResourceUsers -Seconds 3
     Show-NetworkStatus
     Show-HardwareHealth
+    Show-CpuMemoryFaults
     Show-TimeSync
     Show-RecentSystemErrors
 }

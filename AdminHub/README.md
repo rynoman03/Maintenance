@@ -120,6 +120,8 @@ item, plus an overall status:
   discard/error counters. WARN if any adapter shows packet **errors**; discard
   counts are reported for context (counters are totals since boot, so a few
   discards are usually benign). Requires the NetAdapter module (Server 2012+).
+- **Default gateway** — pings (ICMP) the default gateway of each connected
+  adapter; FAIL if any gateway does not respond.
 - **NIC teaming** — for each LBFO team, the teaming mode (incl. `Lacp`) and how
   many member adapters are active. WARN if a team is not `Up` or is running on
   fewer adapters than configured (e.g. only one link passing traffic, or a
@@ -131,6 +133,10 @@ item, plus an overall status:
   and power-supply sensor health. On Dell servers this parses
   `racadm getsensorinfo` (best-effort; raw output is captured in the report);
   otherwise it falls back to ACPI thermal zones where available.
+- **CPU/memory faults** — WHEA hardware-error events in the System log (machine
+  checks, ECC memory errors) plus any processor reporting a non-OK status.
+  Corrected errors → WARN, uncorrected → FAIL. Works on physical and virtual
+  machines (VMs simply have no WHEA events).
 - **Time sync** — domain-joined machines only: measures clock offset from the
   domain via `w32tm`. WARN at ≥ 2s drift, FAIL at ≥ 30s (well before Kerberos'
   5-minute skew limit).
@@ -141,15 +147,17 @@ errors** (up to 20 Critical/Error events from the last 24 hours: time, level,
 source, event ID, and first line of the message) so you can see the actual
 events on screen, not just the count.
 
-`[5]` also shows the network panel (adapters + NIC teaming + DNS, also on its
-own via `[N]`), hardware temperature/power, and domain time sync. Checks that
-don't apply to the machine (no teams, not domain-joined, a VM) report a short
-"skipped"/"not available" note instead of failing.
+`[5]` also shows the network panel (adapters + default gateway ping + NIC
+teaming + DNS, also on its own via `[N]`), hardware temperature/power, CPU/memory
+faults, and domain time sync. Checks that don't apply to the machine (no teams,
+not domain-joined, a VM) report a short "skipped"/"not available" note instead
+of failing.
 
 `[E]` writes the summary plus supporting detail tables (disk, physical-disk
-health, network adapters, NIC teaming, DNS, hardware sensors, domain time sync,
-stopped services, recent errors, top memory, active sessions) to a timestamped
-file at `C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
+health, network adapters, default gateway, NIC teaming, DNS, hardware sensors,
+CPU/memory faults, domain time sync, stopped services, recent errors, top
+memory, active sessions) to a timestamped file at
+`C:\AdminReports\HealthReport_<COMPUTERNAME>_<timestamp>.txt`.
 
 ### Top Resource Users `[2]`
 
