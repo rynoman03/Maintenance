@@ -20,8 +20,9 @@ The menu shown at startup:
 
 ```text
 ============================================================
-  SERVER ADMIN MENU  -  SRV-DB01
+  SERVER ADMIN MENU  -  SRV-DB01  [Standard user]
 ============================================================
+  System & Diagnostics
   [1]  Disk Space
   [2]  Top Resource Users (live)
   [3]  Restart a Service
@@ -30,14 +31,27 @@ The menu shown at startup:
   [M]  Top 10 Memory Usage
   [S]  Top 10 Swap/Page File
   [A]  Active User Sessions
+
+  Networking
+  [N]  Adapters, teaming, DNS, gateway
+  [P]  Listening Ports / Connections
+
+  Maintenance
   [C]  Disk Cleanup (C: drive)
   [E]  Export Health Report
+
+  [R]  Relaunch as Administrator
   [0]  Exit to Shell
 ============================================================
-  Tip: after a task, press [X] then Enter to exit - type Show-AdminMenu to reopen.
+  Note: tasks like [3] and [C] need admin - press [R] to elevate.
+  Tip: after a task, press [X] then Enter to exit  -  type Show-AdminMenu to reopen.
 
-> Select an option
+  Select an option
 ```
+
+> The `[R]` option and the admin note appear only in a non-elevated session;
+> when running as Administrator the header shows `[Administrator]` and both are
+> omitted.
 
 Output of **Export Health Report** `[E]` — the pass/fail summary printed on
 screen before the full report is written to disk:
@@ -52,7 +66,15 @@ screen before the full report is written to disk:
   [WARN] Auto services         2 stopped (Spooler, wuauserv)
   [OK  ] Memory                63% used
   [WARN] Pagefile              82% used
-  [WARN] System errors (24h)   4 error event(s)
+  [WARN] System errors (24h)   4 error/critical event(s)
+  [OK  ] Network adapters      2 up; errors: 0, discards: 0 (since boot)
+  [FAIL] Default gateway       unreachable: 10.20.0.1
+  [WARN] NIC teaming           Team1 1/2
+  [OK  ] DNS resolution        resolved corp.example.com
+  [OK  ] Hardware (temp/PSU)   all temperature/power sensors Ok [Dell racadm]
+  [WARN] CPU/memory faults     3 WHEA event(s) (0 uncorrected)
+  [OK  ] Time sync             offset +0.42s from corp.example.com
+  [OK  ] Listening ports       28 TCP, 14 UDP listening; 53 established
   [OK  ] Uptime                21d 7h since last boot
 
   Overall: FAIL
