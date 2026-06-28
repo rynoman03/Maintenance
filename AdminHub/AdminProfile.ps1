@@ -27,18 +27,13 @@
 #  Printed once at startup above the menu. To rebrand, replace $BannerLines /
 #  $BannerSubtitle. Generate new ASCII art at https://patorjk.com (Standard).
 # ===========================================================================
-$BannerLines = @(
-    '    _    ____  __  __ ___ _   _',
-    '   / \  |  _ \|  \/  |_ _| \ | |',
-    '  / _ \ | | | | |\/| || ||  \| |',
-    ' / ___ \| |_| | |  | || || |\  |',
-    '/_/   \_\____/|_|  |_|___|_| \_|',
-    ' _   _ _   _ ____  ',
-    '| | | | | | | __ ) ',
-    '| |_| | | | |  _ \ ',
-    '|  _  | |_| | |_) |',
-    '|_| |_|\___/|____/ '
-)
+$BannerLines = @'
+     _       _           _       _   _       _
+    / \   __| |_ __ ___ (_)_ __ | | | |_   _| |__
+   / _ \ / _` | '_ ` _ \| | '_ \| |_| | | | | '_ \
+  / ___ \ (_| | | | | | | | | | |  _  | |_| | |_) |
+ /_/   \_\__,_|_| |_| |_|_|_| |_|_| |_|\__,_|_.__/
+'@ -split '\r?\n'
 $BannerColor    = 'Cyan'
 $BannerSubtitle = 'Server Administration Console'
 

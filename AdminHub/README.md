@@ -6,16 +6,11 @@ server is greeted with a banner and an interactive menu of common
 administrative tasks — with the option to drop to a normal shell at any time.
 
 ```
-    _    ____  __  __ ___ _   _
-   / \  |  _ \|  \/  |_ _| \ | |
-  / _ \ | | | | |\/| || ||  \| |
- / ___ \| |_| | |  | || || |\  |
-/_/   \_\____/|_|  |_|___|_| \_|
- _   _ _   _ ____
-| | | | | | | __ )
-| |_| | | | |  _ \
-|  _  | |_| | |_) |
-|_| |_|\___/|____/
+     _       _           _       _   _       _
+    / \   __| |_ __ ___ (_)_ __ | | | |_   _| |__
+   / _ \ / _` | '_ ` _ \| | '_ \| |_| | | | | '_ \
+  / ___ \ (_| | | | | | | | | | |  _  | |_| | |_) |
+ /_/   \_\__,_|_| |_| |_|_|_| |_|_| |_|\__,_|_.__/
 Server Administration Console
 ```
 
