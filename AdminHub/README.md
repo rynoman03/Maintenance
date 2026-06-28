@@ -315,21 +315,31 @@ Time           Level Source                  ID Message
 06-28 10:28:14 Error Service Control Manager 7043 The ... service did not shut down properly.
 ```
 
-**`[K]` Kill a Process** — kill an arbitrary process by name or PID. Lists matches
-(top 20 by memory) and always acts on a single confirmed PID, never by name, so a
-typo can't sweep up unrelated processes. Reuses the same guards as the service-kill
-path: it refuses any process Windows marks **critical** (terminating it bugchecks the
-OS) and warns when the PID hosts services (steering you to `[3]` instead).
+**`[K]` Kill a Process** — kill an arbitrary process by name or PID. If you don't
+know either, press `[L]` to list the running processes (heaviest first) and find the
+PID. It then lists matches (top 20 by memory) and always acts on a single confirmed
+PID, never by name, so a typo can't sweep up unrelated processes. Reuses the same
+guards as the service-kill path: it refuses any process Windows marks **critical**
+(terminating it bugchecks the OS) and warns when the PID hosts services (steering you
+to `[3]` instead).
 
 ```text
 ============================================================
   Kill a Process
 ============================================================
-  Enter a process name or PID: notepad
+  Enter a process name or PID, or [L] to list running processes: L
 
-  Id ProcessName Mem(MB) CPU(s)
-  -- ----------- ------- ------
-8421 notepad        24.3    1.2
+  Running processes (by memory, highest first):
+   Id ProcessName     Mem(MB) CPU(s)
+   -- -----------     ------- ------
+ 5120 sqlservr         3204.7  812.5
+ 8421 notepad            24.3    1.2
+
+  Enter the process name or PID to kill (blank to cancel): 8421
+
+   Id ProcessName Mem(MB) CPU(s)
+   -- ----------- ------- ------
+ 8421 notepad        24.3    1.2
 
   Enter PID 8421 to confirm the kill (blank to cancel): 8421
   Force-kill PID 8421 (notepad)? Abrupt - unsaved state is lost. [Y/N]: Y

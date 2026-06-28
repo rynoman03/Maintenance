@@ -363,8 +363,19 @@ function Stop-ProcessInteractive {
     # (never by name) so a typo can't sweep up unrelated processes, and reuses the
     # same OS-critical guard as the service-kill path so it can't bugcheck the box.
     Write-Header "Kill a Process"
-    $q = Read-Host "  Enter a process name or PID"
+    $q = Read-Host "  Enter a process name or PID, or [L] to list running processes"
     if ([string]::IsNullOrWhiteSpace($q)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+
+    # [L] - browse running processes (heaviest first) to find the PID/name, then re-prompt.
+    if ($q -match '^[Ll]$') {
+        Write-Host "`n  Running processes (by memory, highest first):" -ForegroundColor Cyan
+        Get-Process | Sort-Object WorkingSet -Descending | Select-Object Id, ProcessName,
+            @{N='Mem(MB)'; E={ [math]::Round($_.WorkingSet / 1MB, 1) }},
+            @{N='CPU(s)';  E={ if ($_.CPU) { [math]::Round($_.CPU, 1) } else { 0 } }} |
+            Format-Table -AutoSize | Out-Host
+        $q = Read-Host "  Enter the process name or PID to kill (blank to cancel)"
+        if ([string]::IsNullOrWhiteSpace($q)) { Write-Host "  Cancelled." -ForegroundColor Yellow; return }
+    }
 
     if ($q -match '^\d+$') {
         $procs = @(Get-Process -Id ([int]$q) -ErrorAction SilentlyContinue)
