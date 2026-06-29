@@ -1,5 +1,5 @@
 ############################################################################################################################
-# Created by rynoman03 08.2025 v1.0                                                                                        #
+# Created by Ryan Cashier 08.2025 v1.0                                                                                        #
 # SYNOPSIS                                                                                                                 #
 # Interactive script to create user groups, check for owner groups, set ManagedBy attribute, and add users.                # 
 # Enter user names on line 44.                                                                                             #

@@ -1,5 +1,5 @@
 #SystemRebootTask_and_Email
-#Created by rynoman03
+#Created by Ryan Cashier
 #v1.0
 $Action = 
           (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument 'C:\scripts\sendmail.ps1'),
