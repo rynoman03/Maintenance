@@ -3,13 +3,13 @@
 #                                                                                                                          #
 ############################################################################################################################
 
-# Create a servers.txt file and place it in the same location that this script is running from. Separate list with comma's or one line per device 
+# Create a servers.txt file and place it in the same location that this script is running from. One server name per line.
 
 $serverlist=get-content .\servers.txt
 
 # loop through the servers
 foreach ($server in $serverlist) {
-    Write-Host "Pinging  $server..."
+    Write-Host "Pinging $server..."
     # Test-Connection to ping the server with a count of 1
     $result = Test-Connection $server -Count 1 -ErrorAction SilentlyContinue
 

@@ -1,13 +1,13 @@
 #SystemRebootTask_and_Email
 #Created by Ryan Cashier
 #v1.0
-$Action = 
+$Action =
           (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument 'C:\scripts\sendmail.ps1'),
-          (New-ScheduledTaskAction -Execute 'shutdown' -Argument '-r -f -t 5'),
+          (New-ScheduledTaskAction -Execute 'shutdown' -Argument '-r -f -t 5')
 $Principal =
           New-ScheduledTaskPrincipal -UserID 'DOMAIN\user' -RunLevel Highest
-$Trigger = 
-          New-ScheduledTaskTrigger -Once -'At 6AM'
-Register-ScheduledTask -Action $actions -Principal $principal -Trigger $trigger -Taskname "SystemRebootTask_and_Email" -Description "Reboot system at scheduled time and send email via smtp server"
+$Trigger =
+          New-ScheduledTaskTrigger -Once -At '6:00AM'
+Register-ScheduledTask -Action $Action -Principal $Principal -Trigger $Trigger -Taskname "SystemRebootTask_and_Email" -Description "Reboot system at scheduled time and send email via smtp server"
 #
 #After the scheduled task is registered and showing up in Task Scheduler, you can now run the Get-ScheduledTask cmdlet to see the task.

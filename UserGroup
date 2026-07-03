@@ -2,7 +2,7 @@
 # Created by Ryan Cashier 08.2025 v1.0                                                                                        #
 # SYNOPSIS                                                                                                                 #
 # Interactive script to create user groups, check for owner groups, set ManagedBy attribute, and add users.                # 
-# Enter user names on line 44.                                                                                             #
+# You will be prompted interactively for the group name, owner group, and usernames to add.                              #
 ############################################################################################################################
 
 # Import AD module (required)
@@ -36,7 +36,7 @@ try {
     Set-ADGroup $MainGroup -ManagedBy $OwnerGroup.DistinguishedName
     Write-Host "Set ManagedBy on $($MainGroup.Name) to $($OwnerGroup.Name)" -ForegroundColor Cyan
 } catch {
-    Write-Host "Failed to set ManagedBy $" -ForegroundColor Red
+    Write-Host "Failed to set ManagedBy: $($_.Exception.Message)" -ForegroundColor Red
 }
 
 # Ask to add users to Owner group
@@ -51,7 +51,7 @@ if ($AddUsers -match "^[Yy]") {
             Add-ADGroupMember -Identity $OwnerGroup -Members $User
             Write-Host "Added $User to $($OwnerGroup.Name)" -ForegroundColor Green
         } catch {
-            Write-Host "Failed to add $User $" -ForegroundColor Red
+            Write-Host "Failed to add $($User): $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 } else {
