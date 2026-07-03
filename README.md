@@ -16,7 +16,7 @@ This repository is intentionally simple: most files live at the repository root 
 | `TLS/Disable TLS 1.0 and 1.1  Client & Server` | Disables TLS 1.0 and TLS 1.1 for both client and server roles by writing SCHANNEL registry keys. |
 | `TLS/Enable TLS 1.2 on Client and Server` | Enables TLS 1.2 client and server registry settings. |
 | `TLS/Enable TLS 1.3 on Client and Server` | Enables TLS 1.3 client and server registry settings and updates .NET strong crypto registry values where present. |
-| `Print Server List Printers` | Builds an Excel-based printer inventory from one or more print servers using WMI and Excel COM automation. |
+| `Print Server List Print Queues` | Builds an Excel-based printer inventory from one or more print servers using WMI and Excel COM automation. |
 | `PingIt` | Reads a local `servers.txt` file and checks whether each server responds to `Test-Connection`. |
 | `Sendmail.ps1` | Sends a maintenance notification email through an SMTP server. Intended for use with Windows Task Scheduler or other automation. |
 | `SystemRebootTask_and_Email` | Creates a scheduled task intended to send an email and reboot a system at a scheduled time. |
@@ -100,7 +100,7 @@ Before use:
 - Export or document the existing registry values before changing them.
 - Test on non-production systems first.
 
-### `Print Server List Printers`
+### `Print Server List Print Queues`
 
 This script uses Excel automation and WMI to create a printer inventory workbook.
 
