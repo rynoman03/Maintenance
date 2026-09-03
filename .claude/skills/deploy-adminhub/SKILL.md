@@ -59,6 +59,17 @@ What to know before running this:
   only the profile shim is. If you need to recover a previous module
   version, that comes from git history, not from anything the deploy
   script keeps on the target.
+  - **This has a sharp edge for rollback, worth stating up front rather
+    than discovering it during an incident**: redeploying an *update* to a
+    server that already has AdminHub creates **no new backup** (its shim
+    already says "AdminHub," so the skip-backup branch fires). That means
+    if the new module turns out bad, `Remove-AdminProfile.ps1` on that
+    server does **not** revert it to the version it had five minutes ago —
+    it restores whatever (if anything) predates AdminHub entirely on that
+    box, or just removes AdminHub if there was never a prior profile. See
+    step 4 below: "undo AdminHub" and "go back to yesterday's AdminHub"
+    are two different operations, and only the first one is what
+    `Remove-AdminProfile.ps1` actually does after an update-in-place.
 - **Execution policy / signing**: these scripts aren't signed by default.
   If a target blocks them ("running scripts is disabled on this system"),
   that machine needs `Set-ExecutionPolicy RemoteSigned` once (elevated).
@@ -88,10 +99,26 @@ deletes older backups so they don't accumulate), or deletes the profile
 shim outright if there was never a backup (i.e., AdminHub was the first
 profile on that box). It also deletes the module folder entirely — there
 is no "previous version" of the module to roll back to on the target
-itself, only "module present" or "module absent." If the user wants to
-roll back to an older *module* version rather than remove it, that means
-redeploying an earlier commit's `AdminHub.psm1`/`.psd1` with
-`Deploy-AdminProfile.ps1`, not `Remove-AdminProfile.ps1`.
+itself, only "module present" or "module absent."
+
+**These are two different requests — don't conflate them:**
+
+- **"Get AdminHub off this box, whatever was there before (if anything)"**
+  → `Remove-AdminProfile.ps1` does exactly this, and only this.
+- **"Put this box back on the AdminHub version it had before today's
+  deploy"** → this is a **redeploy of an older commit**, not a removal.
+  `Remove-AdminProfile.ps1` cannot do it when the target already had
+  AdminHub before the bad push, because (per step 2 above) that push
+  created no new backup to restore *to* — the newest `.bak_*`, if any,
+  predates AdminHub ever landing there at all. Check out the last-known-
+  good commit of `AdminHub/` and run `.\Deploy-AdminProfile.ps1
+  -ComputerName <target> -Force` from it instead; don't run
+  `Remove-AdminProfile.ps1` first, the redeploy just overwrites the
+  module files directly.
+
+If the user's phrasing is ambiguous ("roll it back," "undo this"), ask
+which of the two they mean before running either — they produce visibly
+different end states on a box that already had AdminHub.
 
 ## 5. Per-user install (no admin, single account)
 
