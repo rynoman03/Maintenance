@@ -104,8 +104,13 @@ identify which:
 
 ## 4. Report the result plainly
 
-State clearly: which PowerShell was used (and whether it's the 5.1-vs-7
-caveat from step 0), whether PSScriptAnalyzer was clean, and whether Pester
-passed — with the specific failing rule names / test names if not, not just
-"something failed." If everything passed, say so plainly too; this is the
-signal the user needs before pushing.
+If you ran the gates: state clearly which PowerShell was used (and whether
+it's the 5.1-vs-7 caveat from step 0), whether PSScriptAnalyzer was clean,
+and whether Pester passed — with the specific failing rule names / test
+names if not, not just "something failed." If everything passed, say so
+plainly too; this is the signal the user needs before pushing.
+
+If you stopped at step 0 because no PowerShell was available: that message
+*is* the report — don't follow it up with anything that reads like a
+verdict on the code itself (no "looks fine," no "should be safe to push").
+The honest status is "not verified here," full stop.
