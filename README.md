@@ -19,7 +19,7 @@ standalone scripts organized by what they manage.
 | `TLS/Enable TLS 1.2 on Client and Server` | Enables TLS 1.2 client and server registry settings. |
 | `TLS/Enable TLS 1.3 on Client and Server` | Enables TLS 1.3 client and server registry settings and updates .NET strong crypto registry values where present. |
 | `Printing/Get-PrintQueueInventory.ps1` | Builds an Excel-based printer inventory from one or more print servers using WMI and Excel COM automation. |
-| `Networking/PingIt.ps1` | Reads a local `servers.txt` file and checks whether each server responds to `Test-Connection`. |
+| `Networking/PingIt.ps1` | Reads a server list (`-Path`, default `.\servers.txt`) and checks whether each responds to `Test-Connection`, in parallel on PowerShell 7+. Prints a reachable/unreachable summary and optionally exports results via `-ReportPath`. |
 | `Notifications/Sendmail.ps1` | Sends a maintenance notification email through an SMTP server. Intended for use with Windows Task Scheduler or other automation. |
 | `Notifications/SystemRebootTask_and_Email.ps1` | Creates a scheduled task intended to send an email and reboot a system at a scheduled time. |
 | `iDRAC/IdracManager.ps1` | Windows PowerShell iDRAC manager that uses Redfish over HTTPS for power state, health, firmware, thermal, user, and basic security-audit checks. |
@@ -167,7 +167,7 @@ Security notes:
 
 ### `Networking/PingIt.ps1`
 
-This is a simple connectivity helper. Create a `servers.txt` file in the same directory as the script (i.e. inside `Networking/`), then add one server name per line.
+This is a simple connectivity helper. Create a server list file (default `servers.txt`, in the same directory as the script, or point `-Path` at another file), then add one server name per line — blank lines and lines starting with `#` are ignored.
 
 Example `servers.txt`:
 
@@ -176,6 +176,16 @@ server01
 server02
 server03
 ```
+
+```powershell
+# Default: reads .\servers.txt next to the script
+.\Networking\PingIt.ps1
+
+# Custom list, plus a CSV of results
+.\Networking\PingIt.ps1 -Path C:\lists\dc-servers.txt -ReportPath C:\Reports\pingit.csv
+```
+
+Pings run in parallel on PowerShell 7+ and serially on Windows PowerShell 5.1. Output includes a reachable/unreachable summary line in addition to the per-server results.
 
 ### `Notifications/Sendmail.ps1` and `Notifications/SystemRebootTask_and_Email.ps1`
 
