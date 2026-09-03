@@ -1,9 +1,9 @@
-############################################################################################################################
-# Created by Ryan Cashier 08.2025 v1.0                                                                                        #
-# SYNOPSIS                                                                                                                 #
-# Interactive script to create user groups, check for owner groups, set ManagedBy attribute, and add users.                # 
-# You will be prompted interactively for the group name, owner group, and usernames to add.                              #
-############################################################################################################################
+#############################################################################################################
+# Created by Ryan Cashier 08.2025 v1.0                                                                      #
+# SYNOPSIS                                                                                                  #
+# Interactive script to create user groups, check for owner groups, set ManagedBy attribute, and add users. #
+# You will be prompted interactively for the group name, owner group, and usernames to add.                 #
+#############################################################################################################
 
 # Import AD module (required)
 Import-Module ActiveDirectory
