@@ -7,21 +7,24 @@ Scripts and notes used for Windows systems maintenance tasks. This repository is
 
 ## Repository layout
 
-This repository is intentionally simple: most files live at the repository root and are standalone scripts rather than part of a packaged application.
+Scripts are grouped into folders by function rather than left loose at the
+repository root; there is still no packaged application or build step, just
+standalone scripts organized by what they manage.
 
 | File | Purpose |
 | --- | --- |
-| `UserGroup` | Interactive Active Directory group creation script. It creates or finds an owner group, creates a main group, sets the main group's `ManagedBy` attribute, and can add users to the owner group. |
+| `ActiveDirectory/UserGroup.ps1` | Interactive Active Directory group creation script. It creates or finds an owner group, creates a main group, sets the main group's `ManagedBy` attribute, and can add users to the owner group. |
 | `TLS/` | TLS protocol configuration scripts (SCHANNEL registry). See below. |
 | `TLS/Disable TLS 1.0 and 1.1  Client & Server` | Disables TLS 1.0 and TLS 1.1 for both client and server roles by writing SCHANNEL registry keys. |
 | `TLS/Enable TLS 1.2 on Client and Server` | Enables TLS 1.2 client and server registry settings. |
 | `TLS/Enable TLS 1.3 on Client and Server` | Enables TLS 1.3 client and server registry settings and updates .NET strong crypto registry values where present. |
-| `Print Server List Print Queues` | Builds an Excel-based printer inventory from one or more print servers using WMI and Excel COM automation. |
-| `PingIt` | Reads a local `servers.txt` file and checks whether each server responds to `Test-Connection`. |
-| `Sendmail.ps1` | Sends a maintenance notification email through an SMTP server. Intended for use with Windows Task Scheduler or other automation. |
-| `SystemRebootTask_and_Email` | Creates a scheduled task intended to send an email and reboot a system at a scheduled time. |
-| `IdracManager.ps1` | Windows PowerShell iDRAC manager that uses Redfish over HTTPS for power state, health, firmware, thermal, user, and basic security-audit checks. |
-| `IdracManager.cmd` | Windows command prompt launcher for `IdracManager.ps1`; prefers PowerShell 7 (`pwsh.exe`) and falls back to Windows PowerShell (`powershell.exe`). |
+| `Printing/Get-PrintQueueInventory.ps1` | Builds an Excel-based printer inventory from one or more print servers using WMI and Excel COM automation. |
+| `Networking/PingIt.ps1` | Reads a local `servers.txt` file and checks whether each server responds to `Test-Connection`. |
+| `Notifications/Sendmail.ps1` | Sends a maintenance notification email through an SMTP server. Intended for use with Windows Task Scheduler or other automation. |
+| `Notifications/SystemRebootTask_and_Email.ps1` | Creates a scheduled task intended to send an email and reboot a system at a scheduled time. |
+| `iDRAC/IdracManager.ps1` | Windows PowerShell iDRAC manager that uses Redfish over HTTPS for power state, health, firmware, thermal, user, and basic security-audit checks. |
+| `iDRAC/IdracManager.cmd` | Windows command prompt launcher for `IdracManager.ps1`; prefers PowerShell 7 (`pwsh.exe`) and falls back to Windows PowerShell (`powershell.exe`). |
+| `AdminHub/` | Interactive server-administration console and health-check module, packaged as its own PowerShell module. See `AdminHub/README.md`. |
 
 ## General structure
 
@@ -70,7 +73,8 @@ Before running a script against production servers, test with a disposable VM, t
 
 ### Quote filenames with spaces
 
-Several script filenames contain spaces. When running them directly, quote the path:
+The TLS scripts' filenames contain spaces (matching their descriptive
+Windows-registry-change names). When running them directly, quote the path:
 
 ```powershell
 & ".\TLS\Enable TLS 1.2 on Client and Server"
@@ -78,7 +82,7 @@ Several script filenames contain spaces. When running them directly, quote the p
 
 ## Script notes
 
-### `UserGroup`
+### `ActiveDirectory/UserGroup.ps1`
 
 Use this script when you need to create a security group, associate it with an owner group, and optionally add users to that owner group.
 
@@ -100,7 +104,7 @@ Before use:
 - Export or document the existing registry values before changing them.
 - Test on non-production systems first.
 
-### `Print Server List Print Queues`
+### `Printing/Get-PrintQueueInventory.ps1`
 
 This script uses Excel automation and WMI to create a printer inventory workbook.
 
@@ -112,9 +116,9 @@ Before use:
 - Expect the script to open Excel visibly while it runs.
 
 
-### `IdracManager.ps1` and `IdracManager.cmd`
+### `iDRAC/IdracManager.ps1` and `IdracManager.cmd`
 
-`IdracManager.ps1` is a Windows-native Dell iDRAC manager inspired by menu-driven iDRAC maintenance tools. It uses the Redfish API over HTTPS and can run interactively or with action switches. `IdracManager.cmd` is a convenience launcher for administrators who prefer `cmd.exe`, shortcuts, or batch files.
+`IdracManager.ps1` is a Windows-native Dell iDRAC manager inspired by menu-driven iDRAC maintenance tools. It uses the Redfish API over HTTPS and can run interactively or with action switches. `IdracManager.cmd` is a convenience launcher for administrators who prefer `cmd.exe`, shortcuts, or batch files. Both live in `iDRAC/` and locate each other relative to their own folder, so run them from there (or with a full path).
 
 Prerequisites:
 
@@ -126,12 +130,12 @@ Prerequisites:
 Interactive examples:
 
 ```powershell
-.\IdracManager.ps1
-.\IdracManager.ps1 -HostName 192.168.1.100 -Username root
-.\IdracManager.ps1 -HostName idrac01.example.com -GetHealth -GetPowerState
+.\iDRAC\IdracManager.ps1
+.\iDRAC\IdracManager.ps1 -HostName 192.168.1.100 -Username root
+.\iDRAC\IdracManager.ps1 -HostName idrac01.example.com -GetHealth -GetPowerState
 ```
 
-Command Prompt examples:
+Command Prompt examples (from the `iDRAC/` folder):
 
 ```cmd
 IdracManager.cmd
@@ -161,9 +165,9 @@ Security notes:
 - Test against a non-production iDRAC before running checks broadly.
 - Power actions are gated behind PowerShell confirmation prompts because they can interrupt running systems.
 
-### `PingIt`
+### `Networking/PingIt.ps1`
 
-This is a simple connectivity helper. Create a `servers.txt` file in the same directory as the script, then add one server name per line.
+This is a simple connectivity helper. Create a `servers.txt` file in the same directory as the script (i.e. inside `Networking/`), then add one server name per line.
 
 Example `servers.txt`:
 
@@ -173,9 +177,9 @@ server02
 server03
 ```
 
-### `Sendmail.ps1` and `SystemRebootTask_and_Email`
+### `Notifications/Sendmail.ps1` and `Notifications/SystemRebootTask_and_Email.ps1`
 
-These scripts are intended to work together: one sends an email notification, and the other schedules a reboot workflow.
+These scripts are intended to work together: one sends an email notification, and the other schedules a reboot workflow. `SystemRebootTask_and_Email.ps1` currently points at a hard-coded deployment path (`C:\scripts\sendmail.ps1`) for where `Sendmail.ps1` should be copied on the target machine — that's a target-machine path, not a path inside this repo, so update it to wherever you actually deploy the script.
 
 Before use:
 
@@ -213,10 +217,9 @@ Before use:
 
 ## Future improvement ideas
 
-- Rename extensionless PowerShell scripts to `.ps1`.
 - Add per-script usage examples.
 - Add a `docs/` folder for operational runbooks.
-- Add a `servers.txt.example` file for `PingIt`.
+- Add a `servers.txt.example` file for `Networking/PingIt.ps1`.
 - Add parameterized versions of scripts that currently rely on hard-coded values.
-- Add PowerShell Script Analyzer checks once script names and extensions are standardized.
+- Add PowerShell Script Analyzer checks for the root-level scripts (AdminHub already has its own, see `AdminHub/README.md`).
 - Add safer dry-run behavior for scripts that modify registry, Active Directory, or scheduled tasks.
