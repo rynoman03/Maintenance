@@ -1,9 +1,16 @@
-############################################################################################################################
-# Created by Ryan Cashier 08.2025 v1.0                                                                                        #
-# SYNOPSIS                                                                                                                 #
-# Interactive script to create user groups, check for owner groups, set ManagedBy attribute, and add users.                # 
-# You will be prompted interactively for the group name, owner group, and usernames to add.                              #
-############################################################################################################################
+<#
+.SYNOPSIS
+    Interactive Active Directory group creation script.
+
+.DESCRIPTION
+    Creates or finds an owner group, creates a main group, sets the main
+    group's ManagedBy attribute to the owner group, and optionally adds
+    users to the owner group. Prompts interactively for the group name,
+    owner group name, and any usernames to add.
+
+.NOTES
+    Created by Ryan Cashier 08.2025 v1.0
+#>
 
 # Import AD module (required)
 Import-Module ActiveDirectory
