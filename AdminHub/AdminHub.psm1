@@ -1488,7 +1488,9 @@ function Get-HealthSummary {
         if ($dell) {
             $ds = Get-DellStorageHealth
             if ($ds) {
-                $checks += [PSCustomObject]@{ Name = 'RAID/disk (iDRAC)'; Status = $ds.Status; Detail = $ds.Detail }
+                # Raw is stashed so Export-HealthReport can render the full racadm
+                # detail without shelling out to racadm a second time.
+                $checks += [PSCustomObject]@{ Name = 'RAID/disk (iDRAC)'; Status = $ds.Status; Detail = $ds.Detail; Raw = $ds }
             }
         } else {
             $pd = Get-PhysicalDisk -ErrorAction SilentlyContinue
@@ -1502,11 +1504,13 @@ function Get-HealthSummary {
                 $fp = Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction SilentlyContinue
                 foreach ($f in $fp) { if ($f.PredictFailure) { $bad += 'SMART predicted failure' } }
 
+                # Raw is stashed so Export-HealthReport can render the physical
+                # disk table without re-querying Get-PhysicalDisk.
                 if ($bad.Count -gt 0) {
-                    $checks += [PSCustomObject]@{ Name = 'Disk health'; Status = 'FAIL'; Detail = ($bad -join '; ') }
+                    $checks += [PSCustomObject]@{ Name = 'Disk health'; Status = 'FAIL'; Detail = ($bad -join '; '); Raw = $pd }
                 } else {
                     $n = ($pd | Measure-Object).Count
-                    $checks += [PSCustomObject]@{ Name = 'Disk health'; Status = 'OK'; Detail = "$n physical disk(s) healthy" }
+                    $checks += [PSCustomObject]@{ Name = 'Disk health'; Status = 'OK'; Detail = "$n physical disk(s) healthy"; Raw = $pd }
                 }
             }
         }
@@ -1562,7 +1566,9 @@ function Get-HealthSummary {
         $st = if ($down) { 'FAIL' } else { 'OK' }
         $detail = if ($down) { "unreachable: " + (($down | ForEach-Object { $_.Gateway }) -join ', ') }
                   else { "reachable: " + (($gw | ForEach-Object { $_.Gateway }) -join ', ') }
-        $checks += [PSCustomObject]@{ Name = 'Default gateway'; Status = $st; Detail = $detail }
+        # Raw is stashed so Export-HealthReport can render the per-gateway table
+        # without pinging the gateway(s) a second time.
+        $checks += [PSCustomObject]@{ Name = 'Default gateway'; Status = $st; Detail = $detail; Raw = $gw }
     }
 
     # --- NIC teaming (degraded = not Up or fewer active members than configured) ---
@@ -1652,6 +1658,8 @@ function Export-HealthReport {
 
     if (-not (Test-Path $outDir)) { New-Item -ItemType Directory $outDir | Out-Null }
 
+    # Computed once, up front, so a report - even a minimal one - can still be
+    # written from $summary alone if the detailed report body below throws.
     $summary = @(Get-HealthSummary)
     $overall = if (@($summary).Count -eq 0) { 'UNKNOWN' }
                elseif ($summary.Status -contains 'FAIL') { 'FAIL' }
@@ -1659,55 +1667,66 @@ function Export-HealthReport {
                elseif ($summary.Status -contains 'WARN') { 'WARN' }
                else { 'OK' }
 
-    $report = & {
-        "=" * 60
-        "  SERVER HEALTH REPORT - $env:COMPUTERNAME"
-        "  Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-        "  Overall status: $overall"
-        "=" * 60
+    # A couple of checks (Dell storage via racadm, gateway reachability) are
+    # expensive or slow to re-run, so Get-HealthSummary stashes their raw
+    # detail object on the row for reuse here instead of running them again.
+    function Get-CheckRaw([string]$Name) {
+        ($summary | Where-Object { $_.Name -eq $Name } | Select-Object -First 1).Raw
+    }
 
-        "`n[SUMMARY]"
-        $summary | ForEach-Object { "  [{0,-4}] {1,-20} {2}" -f $_.Status, $_.Name, $_.Detail }
+    $report = $null
+    $reportError = $null
+    try {
+        $report = & {
+            "=" * 60
+            "  SERVER HEALTH REPORT - $env:COMPUTERNAME"
+            "  Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+            "  Overall status: $overall"
+            "=" * 60
 
-        "`n[DISK SPACE]"
-        Get-PSDrive -PSProvider FileSystem |
-            Select-Object Name,
-                @{N='Used(GB)';  E={[math]::Round($_.Used/1GB,2)}},
-                @{N='Free(GB)';  E={[math]::Round($_.Free/1GB,2)}},
-                @{N='Total(GB)'; E={[math]::Round(($_.Used+$_.Free)/1GB,2)}},
-                @{N='Used%';     E={ $t=$_.Used+$_.Free; if($t){[math]::Round($_.Used/$t*100,0)}else{0} }} |
-            Format-Table -AutoSize | Out-String
+            "`n[SUMMARY]"
+            $summary | ForEach-Object { "  [{0,-4}] {1,-20} {2}" -f $_.Status, $_.Name, $_.Detail }
 
-        if (-not (Test-IsVirtual)) {
-            if ((Test-IsDell) -and (Get-RacadmPath)) {
-                "`n[STORAGE HEALTH - iDRAC / racadm]"
-                $ds = Get-DellStorageHealth
-                if ($ds) { "  Verdict: $($ds.Status) - $($ds.Detail)`n"; $ds.Raw } else { "  (racadm unavailable)`n" }
-            } else {
-                "`n[PHYSICAL DISK HEALTH]"
-                $pd = Get-PhysicalDisk -ErrorAction SilentlyContinue |
-                    Select-Object FriendlyName, MediaType, HealthStatus, OperationalStatus,
-                        @{N='Size(GB)'; E={[math]::Round($_.Size/1GB,0)}}
-                if ($pd) { $pd | Format-Table -AutoSize | Out-String } else { "  (no physical disk data)`n" }
+            "`n[DISK SPACE]"
+            Get-PSDrive -PSProvider FileSystem |
+                Select-Object Name,
+                    @{N='Used(GB)';  E={[math]::Round($_.Used/1GB,2)}},
+                    @{N='Free(GB)';  E={[math]::Round($_.Free/1GB,2)}},
+                    @{N='Total(GB)'; E={[math]::Round(($_.Used+$_.Free)/1GB,2)}},
+                    @{N='Used%';     E={ $t=$_.Used+$_.Free; if($t){[math]::Round($_.Used/$t*100,0)}else{0} }} |
+                Format-Table -AutoSize | Out-String
+
+            if (-not (Test-IsVirtual)) {
+                if ((Test-IsDell) -and (Get-RacadmPath)) {
+                    "`n[STORAGE HEALTH - iDRAC / racadm]"
+                    $ds = Get-CheckRaw 'RAID/disk (iDRAC)'
+                    if ($ds) { "  Verdict: $($ds.Status) - $($ds.Detail)`n"; $ds.Raw } else { "  (racadm unavailable)`n" }
+                } else {
+                    "`n[PHYSICAL DISK HEALTH]"
+                    $pd = Get-CheckRaw 'Disk health'
+                    if ($pd) {
+                        $pd | Select-Object FriendlyName, MediaType, HealthStatus, OperationalStatus,
+                            @{N='Size(GB)'; E={[math]::Round($_.Size/1GB,0)}} | Format-Table -AutoSize | Out-String
+                    } else { "  (no physical disk data)`n" }
+                }
             }
-        }
 
-        "`n[STOPPED AUTOMATIC SERVICES]"
-        $svc = Get-Service | Where-Object { $_.StartType -eq 'Automatic' -and $_.Status -ne 'Running' } |
-            Select-Object DisplayName, Name, Status
-        if ($svc) { $svc | Format-Table -AutoSize | Out-String } else { "  (none)`n" }
+            "`n[STOPPED AUTOMATIC SERVICES]"
+            $svc = Get-Service | Where-Object { $_.StartType -eq 'Automatic' -and $_.Status -ne 'Running' } |
+                Select-Object DisplayName, Name, Status
+            if ($svc) { $svc | Format-Table -AutoSize | Out-String } else { "  (none)`n" }
 
-        "`n[NETWORK ADAPTERS - discards/errors cumulative since boot]"
-        $nic = Get-NetworkAdapterHealth
-        if ($nic) { $nic | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize | Out-String }
-        else { "  (Get-NetAdapter unavailable or no connected adapters)`n" }
+            "`n[NETWORK ADAPTERS - discards/errors cumulative since boot]"
+            $nic = Get-NetworkAdapterHealth
+            if ($nic) { $nic | Format-Table Name, LinkSpeed, RxDiscarded, RxErrors, TxDiscarded, TxErrors -AutoSize | Out-String }
+            else { "  (Get-NetAdapter unavailable or no connected adapters)`n" }
 
-        "`n[DEFAULT GATEWAY]"
-        $gwr = Get-GatewayHealth
-        if ($gwr) { $gwr | Format-Table Interface, Gateway, Reachable -AutoSize | Out-String }
-        else { "  (no default gateway configured)`n" }
+            "`n[DEFAULT GATEWAY]"
+            $gwr = Get-CheckRaw 'Default gateway'
+            if ($gwr) { $gwr | Format-Table Interface, Gateway, Reachable -AutoSize | Out-String }
+            else { "  (no default gateway configured)`n" }
 
-        "`n[NIC TEAMING]"
+            "`n[NIC TEAMING]"
         $tm = Get-NicTeamingHealth
         if ($null -eq $tm) { "  (LBFO not available)`n" }
         elseif (-not $tm) { "  (no teams configured)`n" }
@@ -1786,15 +1805,38 @@ function Export-HealthReport {
         "  END OF REPORT"
         "=" * 60
     }
+    } catch {
+        # Something in the report body threw uncaught - $report was never
+        # assigned. Fall through to the finally block below, which still
+        # writes a minimal summary-only report rather than nothing at all.
+        $reportError = $_
+    } finally {
+        if (-not $report) {
+            $report = @(
+                "=" * 60
+                "  SERVER HEALTH REPORT - $env:COMPUTERNAME (PARTIAL - report generation failed)"
+                "  Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                "  Overall status: $overall"
+                "=" * 60
+                "`n[SUMMARY]"
+                ($summary | ForEach-Object { "  [{0,-4}] {1,-20} {2}" -f $_.Status, $_.Name, $_.Detail })
+                "`n[ERROR] Report generation failed partway through: $($reportError.Exception.Message)"
+                "`n" + ("=" * 60)
+            )
+        }
 
-    $report | Out-File -FilePath $outFile -Encoding UTF8
+        $report | Out-File -FilePath $outFile -Encoding UTF8
 
-    Write-HealthSummary $summary
-    Write-Host ""
-    Write-Host "  Overall: $overall" -ForegroundColor $(
-        switch ($overall) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'Magenta' } })
-    Write-Host "  Report saved to: $outFile" -ForegroundColor Cyan
-    Write-Host "  Size: $([math]::Round((Get-Item $outFile).Length / 1KB, 1)) KB" -ForegroundColor DarkCyan
+        Write-HealthSummary $summary
+        Write-Host ""
+        Write-Host "  Overall: $overall" -ForegroundColor $(
+            switch ($overall) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'Magenta' } })
+        if ($reportError) {
+            Write-Host "  WARNING: full report generation failed ($($reportError.Exception.Message)); a partial summary-only report was saved instead." -ForegroundColor Yellow
+        }
+        Write-Host "  Report saved to: $outFile" -ForegroundColor Cyan
+        Write-Host "  Size: $([math]::Round((Get-Item $outFile).Length / 1KB, 1)) KB" -ForegroundColor DarkCyan
+    }
 }
 
 function Invoke-SystemHealthCheck {
