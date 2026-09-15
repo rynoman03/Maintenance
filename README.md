@@ -20,7 +20,7 @@ standalone scripts organized by what they manage.
 | `TLS/Enable TLS 1.3 on Client and Server` | Enables TLS 1.3 client and server registry settings and updates .NET strong crypto registry values where present. |
 | `Printing/Get-PrintQueueInventory.ps1` | Builds an Excel-based printer inventory from one or more print servers using WMI and Excel COM automation. |
 | `Networking/PingIt.ps1` | Reads a server list (`-Path`, default `.\servers.txt`) and checks whether each responds to `Test-Connection`, in parallel on PowerShell 7+. Prints a reachable/unreachable summary and optionally exports results via `-ReportPath`. |
-| `Notifications/Sendmail.ps1` | Sends a maintenance notification email through an SMTP server. Intended for use with Windows Task Scheduler or other automation. |
+| `Notifications/Sendmail.ps1` | Sends a maintenance notification email through an SMTP server (`-From`, `-To`, `-SmtpServer`, etc.), logging every attempt to a timestamped log file. Intended for use with Windows Task Scheduler or other unattended automation. |
 | `Notifications/SystemRebootTask_and_Email.ps1` | Creates a scheduled task intended to send an email and reboot a system at a scheduled time. |
 | `iDRAC/IdracManager.ps1` | Windows PowerShell iDRAC manager that uses Redfish over HTTPS for power state, health, firmware, thermal, user, and basic security-audit checks. |
 | `iDRAC/IdracManager.cmd` | Windows command prompt launcher for `IdracManager.ps1`; prefers PowerShell 7 (`pwsh.exe`) and falls back to Windows PowerShell (`powershell.exe`). |
@@ -56,7 +56,7 @@ Several scripts contain placeholder values that should be updated for your envir
 
 - Active Directory paths such as `OU=Groups,DC=domain,DC=com`.
 - Print server names such as `printservernamehere1`.
-- SMTP server names, sender addresses, and recipient addresses.
+- SMTP server names, sender addresses, and recipient addresses (`Notifications/Sendmail.ps1` takes these as `-From`/`-To`/`-SmtpServer` parameters now, but still ships with placeholder defaults - pass real values or edit the defaults before deploying).
 - Domain user values such as `DOMAIN\user`.
 - Script paths such as `C:\scripts\sendmail.ps1`.
 - Dell iDRAC host names, IP addresses, and credentials.
@@ -191,9 +191,13 @@ Pings run in parallel on PowerShell 7+ and serially on Windows PowerShell 5.1. O
 
 These scripts are intended to work together: one sends an email notification, and the other schedules a reboot workflow. `SystemRebootTask_and_Email.ps1` currently points at a hard-coded deployment path (`C:\scripts\sendmail.ps1`) for where `Sendmail.ps1` should be copied on the target machine — that's a target-machine path, not a path inside this repo, so update it to wherever you actually deploy the script.
 
+`Sendmail.ps1` takes `-From`, `-To`, `-SmtpServer`, `-Subject`, `-Body`, `-Priority`, and `-LogPath` as parameters instead of requiring you to edit the script body — pass real values (recommended, e.g. via the scheduled task action's argument string) or edit the placeholder defaults directly. It logs every send attempt, success or failure, to a timestamped file next to the script (or `-LogPath`) — check that log first if a scheduled run appears to have not sent mail. It supports `-WhatIf` to validate the parameters and see what would be sent without actually emailing anyone.
+
+`SystemRebootTask_and_Email.ps1` itself is not yet hardened the same way — it still has hard-coded values (`DOMAIN\user`, the `sendmail.ps1` path, the `6:00AM` trigger time) that need source edits before use.
+
 Before use:
 
-- Update SMTP settings and email addresses.
+- Update SMTP settings and email addresses — either as `Sendmail.ps1` arguments in the scheduled task action, or as edits to its parameter defaults.
 - Update the scheduled task user.
 - Update the path to `sendmail.ps1`.
 - Validate the scheduled task trigger syntax in a test environment.
