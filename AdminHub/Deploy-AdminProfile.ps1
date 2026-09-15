@@ -95,7 +95,7 @@ function Install-AdminHubModule {
     Write-Host "  Module  -> $ModuleDir" -ForegroundColor Green
 }
 
-function Deploy-ToPath {
+function Copy-ToPath {
     param([string]$Dest)
 
     $dir = Split-Path $Dest
@@ -142,7 +142,7 @@ foreach ($computer in $ComputerName) {
     }
 
     foreach ($m in (Get-ModuleTargets -Computer $computer)) { Install-AdminHubModule -ModuleDir $m }
-    foreach ($dest in (Get-ProfileTargets -Computer $computer)) { Deploy-ToPath -Dest $dest }
+    foreach ($dest in (Get-ProfileTargets -Computer $computer)) { Copy-ToPath -Dest $dest }
 }
 
 Write-Host "`nModule + profile deployment complete." -ForegroundColor Cyan
