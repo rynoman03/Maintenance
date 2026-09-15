@@ -793,18 +793,24 @@ profile.
 
 The module is linted and tested automatically by GitHub Actions
 (`.github/workflows/adminhub-ci.yml`), which runs on every push or pull request
-that touches `AdminHub/`. The job runs on a Windows runner under **Windows
-PowerShell 5.1** — the module's target runtime — in two gates:
+that touches `AdminHub/`, as two jobs on Windows runners:
 
-- **PSScriptAnalyzer** against `ScriptAnalyzerSettings.psd1`. The settings file
-  documents the few rules that are intentionally excluded (e.g. `Write-Host` is
-  the tool's UI, the public commands use established plural-noun names). Any
-  other Error or Warning fails the build.
-- **Pester** (`Tests/AdminHub.Tests.ps1`): the manifest is valid, the module
-  imports, the export surface in the `.psd1` matches `Export-ModuleMember` in
-  the `.psm1` (catches drift when a command is added to one but not the other),
-  and every shipped `.ps1`/`.psm1`/`.psd1` is **pure ASCII with no BOM** — the
-  encoding Windows PowerShell 5.1 requires.
+- **`lint-and-test`**, under **Windows PowerShell 5.1** — the module's target
+  runtime (and floor) — runs both gates:
+  - **PSScriptAnalyzer** against `ScriptAnalyzerSettings.psd1`. The settings
+    file documents the few rules that are intentionally excluded (e.g.
+    `Write-Host` is the tool's UI, the public commands use established
+    plural-noun names). Any other Error or Warning fails the build.
+  - **Pester** (`Tests/AdminHub.Tests.ps1`): the manifest is valid, the module
+    imports, the export surface in the `.psd1` matches `Export-ModuleMember`
+    in the `.psm1` (catches drift when a command is added to one but not the
+    other), and every shipped `.ps1`/`.psm1`/`.psd1` is **pure ASCII with no
+    BOM** — the encoding Windows PowerShell 5.1 requires.
+- **`test-pwsh`**, under **PowerShell 7 (`pwsh`)** — re-runs the same Pester
+  suite as a belt-and-suspenders check for PS7-only regressions, since the
+  module also supports PS7+ (see **Requirements** below). PSScriptAnalyzer
+  isn't re-run here: it statically parses script text, so its result doesn't
+  depend on which PowerShell edition runs it.
 
 Run the same checks locally (installs the modules on first use):
 
