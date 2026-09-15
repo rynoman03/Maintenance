@@ -1,8 +1,13 @@
 name: AdminHub CI
 
 # Lints and tests the AdminHub module. Scoped to the AdminHub folder so changes
-# to the other scripts in this repo do not trigger it. Runs on Windows PowerShell
-# 5.1 (the module's target runtime) on a Windows runner.
+# to the other scripts in this repo do not trigger it. The module's target
+# runtime (and floor) is Windows PowerShell 5.1, so that's where linting plus
+# the full Pester suite runs; a second job re-runs Pester under pwsh (PowerShell
+# 7+) as a belt-and-suspenders check for PS7-only regressions, since the module
+# also supports PS7+ per its README. PSScriptAnalyzer isn't re-run there since
+# it statically parses script text and its result doesn't depend on which
+# PowerShell edition is running it.
 
 on:
   push:
@@ -65,4 +70,43 @@ jobs:
         with:
           name: pester-results
           path: AdminHub/testResults.xml
+          if-no-files-found: ignore
+
+  test-pwsh:
+    name: Pester (PowerShell 7 / pwsh)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: AdminHub
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          # windows-latest's pwsh also ships an older in-box Pester; force the 5.x line.
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+
+      - name: Pester
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -MinimumVersion 5.0
+          $config = New-PesterConfiguration
+          $config.Run.Path           = './Tests'
+          $config.Run.Throw          = $true     # non-zero exit on any failure
+          $config.Output.Verbosity   = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'testResults-pwsh.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results-pwsh
+          path: AdminHub/testResults-pwsh.xml
           if-no-files-found: ignore
