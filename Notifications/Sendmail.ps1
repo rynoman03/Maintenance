@@ -92,7 +92,14 @@ function Write-SendmailLog {
     )
 
     $entry = '{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
-    Add-Content -Path $LogPath -Value $entry
+    try {
+        Add-Content -Path $LogPath -Value $entry -ErrorAction Stop
+    } catch {
+        # Logging is best-effort: a bad LogPath (unwritable directory, missing
+        # parent folder) must never crash the send it's only meant to record -
+        # including under -WhatIf, which is supposed to be side-effect-free.
+        Write-Warning "Could not write to log '$LogPath': $($_.Exception.Message)"
+    }
 }
 
 Write-SendmailLog -Message "Starting Sendmail.ps1 (From=$From, To=$($To -join ', '), SmtpServer=$SmtpServer)"
