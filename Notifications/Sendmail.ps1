@@ -96,8 +96,11 @@ function Write-SendmailLog {
         Add-Content -Path $LogPath -Value $entry -ErrorAction Stop
     } catch {
         # Logging is best-effort: a bad LogPath (unwritable directory, missing
-        # parent folder) must never crash the send it's only meant to record -
-        # including under -WhatIf, which is supposed to be side-effect-free.
+        # parent folder) must never crash the send it's only meant to record.
+        # $ErrorActionPreference is 'Stop' for this script, so without this
+        # guard the very first log line terminates the run before the mail is
+        # even attempted. (-WhatIf is unaffected either way: Add-Content honors
+        # it and skips the write, so the failure only surfaces on a real run.)
         Write-Warning "Could not write to log '$LogPath': $($_.Exception.Message)"
     }
 }
