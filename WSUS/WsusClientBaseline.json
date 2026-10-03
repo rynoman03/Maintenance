@@ -1,0 +1,105 @@
+{
+  "Name": "Default WSUS client baseline",
+  "Description": "Windows Update policy values that point clients at WSUS and control when updates install and reboot. Edit to match your environment. Tokens: {WsusServerUrl} = the WSUS server you connected to (or -WsusServerUrl); {TargetGroup} = the WSUS group you targeted (or -TargetGroup). AllowedValues (optional) lets compliance accept any of several values; Value is what gets written.",
+  "Settings": [
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+      "Name": "WUServer",
+      "Type": "String",
+      "Value": "{WsusServerUrl}",
+      "Description": "Intranet update service used for detection."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+      "Name": "WUStatusServer",
+      "Type": "String",
+      "Value": "{WsusServerUrl}",
+      "Description": "Intranet statistics (reporting) server."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+      "Name": "TargetGroupEnabled",
+      "Type": "DWord",
+      "Value": 1,
+      "Description": "Enable client-side targeting (WSUS Options > Computers must be set to 'Use Group Policy or registry settings')."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+      "Name": "TargetGroup",
+      "Type": "String",
+      "Value": "{TargetGroup}",
+      "Description": "WSUS computer group this client reports into."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+      "Name": "DoNotConnectToWindowsUpdateInternetLocations",
+      "Type": "DWord",
+      "Value": 1,
+      "Description": "Do not reach out to Microsoft Update on the internet."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "UseWUServer",
+      "Type": "DWord",
+      "Value": 1,
+      "Description": "Use the WUServer value above instead of Microsoft Update."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "NoAutoUpdate",
+      "Type": "DWord",
+      "Value": 0,
+      "Description": "0 = automatic updates enabled."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "AUOptions",
+      "Type": "DWord",
+      "Value": 4,
+      "AllowedValues": [3, 4],
+      "Description": "2 = notify, 3 = auto download + notify, 4 = auto download + schedule install. Compliant if 3 or 4; 4 is written."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "ScheduledInstallDay",
+      "Type": "DWord",
+      "Value": 0,
+      "Description": "0 = every day, 1-7 = Sunday-Saturday."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "ScheduledInstallTime",
+      "Type": "DWord",
+      "Value": 3,
+      "Description": "Hour of day (0-23) for scheduled installs."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "NoAutoRebootWithLoggedOnUsers",
+      "Type": "DWord",
+      "Value": 1,
+      "Description": "Do not auto-restart while a user is logged on."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "DetectionFrequencyEnabled",
+      "Type": "DWord",
+      "Value": 1,
+      "Description": "Use a custom detection frequency."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+      "Name": "DetectionFrequency",
+      "Type": "DWord",
+      "Value": 4,
+      "Description": "Hours between WSUS detection cycles (1-22)."
+    },
+    {
+      "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+      "Name": "DisableDualScan",
+      "Type": "DWord",
+      "Value": 1,
+      "Description": "Do not let deferral policies cause scans against Windows Update."
+    }
+  ]
+}

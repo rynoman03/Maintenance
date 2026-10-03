@@ -1,0 +1,112 @@
+name: WSUS Manager CI
+
+# Lints and tests the WsusManager module, then builds the portable
+# WsusManager.exe and uploads it as a workflow artifact (download it from the
+# run's "Artifacts" section - no build tools needed on your machine).
+# Scoped to the WSUS folder so changes elsewhere in the repo do not trigger it.
+
+on:
+  push:
+    paths:
+      - 'WSUS/**'
+      - '.github/workflows/wsus-ci.yml'
+  pull_request:
+    paths:
+      - 'WSUS/**'
+      - '.github/workflows/wsus-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  lint-and-test:
+    name: PSScriptAnalyzer + Pester (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+        working-directory: WSUS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer and Pester
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -MinimumVersion 1.21.0 -Force -Scope CurrentUser
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+
+      - name: PSScriptAnalyzer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module PSScriptAnalyzer
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\ScriptAnalyzerSettings.psd1
+          if ($results) {
+            $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+            throw "PSScriptAnalyzer reported $($results.Count) issue(s)."
+          }
+          Write-Host 'PSScriptAnalyzer: clean.'
+
+      - name: Pester
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -MinimumVersion 5.0
+          $config = New-PesterConfiguration
+          $config.Run.Path           = './Tests'
+          $config.Run.Throw          = $true
+          $config.Output.Verbosity   = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'testResults.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsus-pester-results
+          path: WSUS/testResults.xml
+          if-no-files-found: ignore
+
+  build-exe:
+    name: Build WsusManager.exe
+    needs: lint-and-test
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+        working-directory: WSUS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PS2EXE
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module ps2exe -Force -Scope CurrentUser
+
+      - name: Build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\Build-WsusManagerExe.ps1 -OutputDirectory .\dist
+          Copy-Item .\README.md .\dist\README.md
+
+      - name: Smoke-test the exe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\dist\WsusManager.exe -Action ShowBaseline -ReportPath .\dist-smoke\baseline.json | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "WsusManager.exe exited with $LASTEXITCODE" }
+          $rows = @(Get-Content .\dist-smoke\baseline.json -Raw | ConvertFrom-Json)
+          if (-not ($rows.Name -contains 'WUServer')) { throw 'Baseline export from the exe is missing WUServer.' }
+          Write-Host "WsusManager.exe OK ($($rows.Count) baseline settings)."
+
+      - name: Upload WsusManager.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: WsusManager
+          path: |
+            WSUS/dist/WsusManager.exe
+            WSUS/dist/WsusClientBaseline.json
+            WSUS/dist/README.md
+          if-no-files-found: error

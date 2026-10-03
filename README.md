@@ -25,6 +25,7 @@ standalone scripts organized by what they manage.
 | `iDRAC/IdracManager.ps1` | Windows PowerShell iDRAC manager that uses Redfish over HTTPS for power state, health, firmware, thermal, user, and basic security-audit checks. |
 | `iDRAC/IdracManager.cmd` | Windows command prompt launcher for `IdracManager.ps1`; prefers PowerShell 7 (`pwsh.exe`) and falls back to Windows PowerShell (`powershell.exe`). |
 | `AdminHub/` | Interactive server-administration console and health-check module, packaged as its own PowerShell module. See `AdminHub/README.md`. |
+| `WSUS/` | WSUS Manager: connects to a WSUS server you choose and handles several jobs: update groups and update info, reboot-needed and system uptime reports, forced reboot / update install / check-in, and a Windows Update registry baseline to apply and check compliance against. Ships as a portable `WsusManager.exe` (built by CI). See `WSUS/README.md`. |
 
 ## General structure
 
@@ -202,6 +203,16 @@ Before use:
 - Update the path to `sendmail.ps1`.
 - Validate the scheduled task trigger syntax in a test environment.
 - Confirm the reboot window with stakeholders before registering or running the task.
+
+### `WSUS/` (WSUS Manager)
+
+WSUS Manager runs locally and connects to the WSUS server you specify, either with `-WsusServer` or at the startup prompt.
+
+- If the WSUS console isn't installed on your machine, it runs its WSUS queries on the WSUS server over WinRM, so the portable `WsusManager.exe` needs nothing installed.
+- Client actions (uptime, reboot pending, check-in, install, reboot, registry) use WinRM to each target computer.
+- Download the exe from the **WSUS Manager CI** workflow's `WsusManager` artifact, or build it with `WSUS\Build-WsusManagerExe.ps1`.
+
+See `WSUS/README.md` for the menu, the `-Action` examples, and the registry baseline format.
 
 ## Suggested learning path for newcomers
 
